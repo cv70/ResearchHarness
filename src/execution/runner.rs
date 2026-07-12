@@ -2,9 +2,10 @@ use std::{
     fs::File,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    thread,
     time::{Duration, Instant},
 };
+
+use wait_timeout::ChildExt;
 
 use crate::core::{HarnessError, Result};
 
@@ -47,26 +48,23 @@ pub fn run_command(
         .spawn()?;
 
     let timeout = Duration::from_secs(command.timeout_seconds);
-    loop {
-        if let Some(status) = child.try_wait()? {
-            return Ok(CommandResult {
-                exit_code: status.code(),
-                duration: started.elapsed(),
-                log_path: log_path.clone(),
-                timed_out: false,
-            });
-        }
-        if started.elapsed() >= timeout {
-            child.kill()?;
+    match child.wait_timeout(timeout)? {
+        Some(status) => Ok(CommandResult {
+            exit_code: status.code(),
+            duration: started.elapsed(),
+            log_path: log_path.clone(),
+            timed_out: false,
+        }),
+        None => {
+            let _ = child.kill();
             let _ = child.wait();
-            return Ok(CommandResult {
+            Ok(CommandResult {
                 exit_code: None,
                 duration: started.elapsed(),
                 log_path: log_path.clone(),
                 timed_out: true,
-            });
+            })
         }
-        thread::sleep(Duration::from_millis(100));
     }
 }
 

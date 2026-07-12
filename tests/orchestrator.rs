@@ -116,7 +116,7 @@ fn run_once_rejects_dirty_user_workspace_before_agents_run() {
     );
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ReadonlyEditingAgent;
 
 impl AgentRunner for ReadonlyEditingAgent {

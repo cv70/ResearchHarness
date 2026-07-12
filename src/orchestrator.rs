@@ -30,6 +30,19 @@ pub struct RunOnceOutcome {
     pub archive_path: PathBuf,
 }
 
+struct ExperimentContext<R: AgentRunner> {
+    workspace: Workspace,
+    memory: MemoryStore,
+    archive_store: ArchiveStore,
+    run: Run,
+    experiment: crate::core::Experiment,
+    archive: crate::core::ExperimentArchive,
+    base_commit: String,
+    allowed_paths: Vec<PathBuf>,
+    agent: R,
+    state_path: PathBuf,
+}
+
 impl Orchestrator {
     pub fn new(workspace_root: impl Into<PathBuf>, config: Config) -> Self {
         Self {
@@ -66,7 +79,34 @@ impl Orchestrator {
         Ok(fs::read_to_string(state_path)?)
     }
 
-    pub fn run_once<R: AgentRunner>(&self, tag: &str, agent: &R) -> Result<RunOnceOutcome> {
+    pub fn run_once<R: AgentRunner + Clone>(&self, tag: &str, agent: &R) -> Result<RunOnceOutcome> {
+        let mut context = self.prepare_context(tag, agent.clone())?;
+        let experiment_id = context.experiment.id.clone();
+        let archive_path = context.experiment.archive_path.clone();
+
+        match self.execute_experiment(&mut context) {
+            Ok((status, metric)) => {
+                self.archive_results(&mut context, status, metric.clone())?;
+                Ok(RunOnceOutcome {
+                    experiment_id,
+                    status,
+                    metric,
+                    archive_path,
+                })
+            }
+            Err(err) => {
+                self.archive_crash(&mut context, err)?;
+                Ok(RunOnceOutcome {
+                    experiment_id,
+                    status: ExperimentStatus::Crashed,
+                    metric: None,
+                    archive_path,
+                })
+            }
+        }
+    }
+
+    fn prepare_context<R: AgentRunner>(&self, tag: &str, agent: R) -> Result<ExperimentContext<R>> {
         let workspace = Workspace::new(&self.workspace_root);
         workspace.ensure_git_repo()?;
         if workspace.has_user_changes()? {
@@ -81,7 +121,7 @@ impl Orchestrator {
         let archive_store = ArchiveStore::new(&self.workspace_root, tag);
         archive_store.init_run_dirs()?;
         let state_path = archive_store.state_path();
-        let mut run = if state_path.exists() {
+        let run = if state_path.exists() {
             toml::from_str::<Run>(&fs::read_to_string(&state_path)?)?
         } else {
             Run::new(tag, workspace.current_branch()?)
@@ -89,10 +129,9 @@ impl Orchestrator {
 
         let base_commit = workspace.head_commit()?;
         let experiment_index = run.experiment_count + 1;
-        let (mut experiment, archive) =
+        let (experiment, archive) =
             archive_store.create_experiment(tag, experiment_index, base_commit.clone())?;
 
-        let snapshot = memory.load()?;
         let allowed_paths = self
             .config
             .workspace
@@ -101,219 +140,225 @@ impl Orchestrator {
             .map(PathBuf::from)
             .collect::<Vec<_>>();
 
-        self.call_agent(
+        Ok(ExperimentContext {
+            workspace,
+            memory,
+            archive_store,
+            run,
+            experiment,
+            archive,
+            base_commit,
+            allowed_paths,
             agent,
+            state_path,
+        })
+    }
+
+    fn execute_experiment<R: AgentRunner>(
+        &self,
+        context: &mut ExperimentContext<R>,
+    ) -> std::result::Result<(ExperimentStatus, Option<MetricSnapshot>), HarnessError> {
+        self.execute_agent_planning(context)?;
+        self.execute_coding_and_review(context)?;
+        self.execute_experiment_command(context)
+    }
+
+    fn execute_agent_planning<R: AgentRunner>(
+        &self,
+        context: &mut ExperimentContext<R>,
+    ) -> Result<()> {
+        let snapshot = context.memory.load()?;
+
+        self.call_agent(
+            &context.agent,
             AgentRole::Coordinator,
             "生成本轮调度建议。",
             &snapshot.playbook,
-            &allowed_paths,
+            &context.allowed_paths,
         )?;
         let research = self.call_agent(
-            agent,
+            &context.agent,
             AgentRole::Research,
             "提出一个可归因的实验假设。",
             &snapshot.experiments,
-            &allowed_paths,
+            &context.allowed_paths,
         )?;
-        experiment.hypothesis = Some(research.stdout.trim().to_string());
+        context.experiment.hypothesis = Some(research.stdout.trim().to_string());
         let plan = self.call_agent(
-            agent,
+            &context.agent,
             AgentRole::Planning,
             "将实验假设转成执行计划。",
             &research.stdout,
-            &allowed_paths,
+            &context.allowed_paths,
         )?;
-        ArchiveStore::write_text(&archive.plan_path, &plan.stdout)?;
+        ArchiveStore::write_text(&context.archive.plan_path, &plan.stdout)?;
+        Ok(())
+    }
 
-        if let Err(err) = self.call_agent(
-            agent,
+    fn execute_coding_and_review<R: AgentRunner>(
+        &self,
+        context: &mut ExperimentContext<R>,
+    ) -> Result<()> {
+        self.call_agent(
+            &context.agent,
             AgentRole::Coding,
             "按 plan.md 修改允许范围内的代码。",
-            &plan.stdout,
-            &allowed_paths,
-        ) {
-            return self.archive_crash(
-                workspace,
-                memory,
-                archive_store,
-                run,
-                experiment,
-                archive,
-                base_commit,
-                err,
-            );
-        }
-        let diff = workspace.diff()?;
-        ArchiveStore::write_text(&archive.diff_path, &diff)?;
-        let changed_files = workspace.user_changed_files()?;
+            &fs::read_to_string(&context.archive.plan_path).unwrap_or_default(),
+            &context.allowed_paths,
+        )?;
+        let diff = context.workspace.diff()?;
+        ArchiveStore::write_text(&context.archive.diff_path, &diff)?;
+        let changed_files = context.workspace.user_changed_files()?;
         let path_policy = PathPolicy::new(
             self.config.workspace.modifiable.clone(),
             self.config.workspace.readonly.clone(),
         );
-        if let Err(err) = path_policy.check_changed_paths(changed_files.iter()) {
-            return self.archive_crash(
-                workspace,
-                memory,
-                archive_store,
-                run,
-                experiment,
-                archive,
-                base_commit,
-                err,
-            );
-        }
+        path_policy.check_changed_paths(changed_files.iter())?;
 
-        if let Err(err) = self.call_agent(
-            agent,
+        self.call_agent(
+            &context.agent,
             AgentRole::Review,
             "审查 diff 是否符合计划。",
             &diff,
-            &allowed_paths,
-        ) {
-            return self.archive_crash(
-                workspace,
-                memory,
-                archive_store,
-                run,
-                experiment,
-                archive,
-                base_commit,
-                err,
-            );
-        }
+            &context.allowed_paths,
+        )?;
 
-        experiment.status = ExperimentStatus::Reviewed;
-        archive_store.write_manifest(&experiment)?;
+        context.experiment.status = ExperimentStatus::Reviewed;
+        context.archive_store.write_manifest(&context.experiment)?;
 
         let candidate_commit = if !changed_files.is_empty() {
-            let commit =
-                workspace.commit_paths(&changed_files, &format!("experiment {}", experiment.id))?;
+            let commit = context.workspace.commit_paths(
+                &changed_files,
+                &format!("experiment {}", context.experiment.id),
+            )?;
             Some(commit)
         } else {
             None
         };
-        experiment.candidate_commit = candidate_commit.clone();
+        context.experiment.candidate_commit = candidate_commit;
+        Ok(())
+    }
 
+    fn execute_experiment_command<R: AgentRunner>(
+        &self,
+        context: &mut ExperimentContext<R>,
+    ) -> Result<(ExperimentStatus, Option<MetricSnapshot>)> {
         let command = ExperimentCommand {
             command: self.config.experiment.command.clone(),
             timeout_seconds: self.config.experiment.timeout_seconds,
-            log_path: archive.run_log_path.clone(),
+            log_path: context.archive.run_log_path.clone(),
         };
-        experiment.status = ExperimentStatus::Running;
-        archive_store.write_manifest(&experiment)?;
+        context.experiment.status = ExperimentStatus::Running;
+        context.archive_store.write_manifest(&context.experiment)?;
+
         let command_result = run_command(&self.workspace_root, &command)?;
         let _ = write_log_excerpt(
-            &archive.run_log_path,
-            &archive.log_excerpt_path,
+            &context.archive.run_log_path,
+            &context.archive.log_excerpt_path,
             self.config.experiment.max_log_excerpt_lines,
         );
 
-        let previous_best = run.best_metric.as_ref().map(|metric| metric.value);
-        let mut metric = None;
-        let status = if command_result.ensure_success().is_err() {
-            workspace.reset_hard(&base_commit)?;
-            workspace.clean_user_untracked()?;
-            run.consecutive_crashes += 1;
-            ExperimentStatus::Crashed
-        } else {
-            match parse_metric(&self.config.metric, &archive.run_log_path, previous_best) {
-                Ok(snapshot) if snapshot.improved => {
-                    run.best_metric = Some(snapshot.clone());
-                    run.best_commit = candidate_commit;
-                    run.consecutive_crashes = 0;
-                    run.consecutive_regressions = 0;
-                    metric = Some(snapshot);
-                    ExperimentStatus::Kept
-                }
-                Ok(snapshot) => {
-                    workspace.reset_hard(&base_commit)?;
-                    workspace.clean_user_untracked()?;
-                    run.consecutive_regressions += 1;
-                    metric = Some(snapshot);
-                    ExperimentStatus::Discarded
-                }
-                Err(_) => {
-                    workspace.reset_hard(&base_commit)?;
-                    workspace.clean_user_untracked()?;
-                    run.consecutive_crashes += 1;
-                    ExperimentStatus::Crashed
-                }
-            }
-        };
-        experiment.status = status;
-        experiment.metric_snapshot = metric.clone();
+        let previous_best = context.run.best_metric.as_ref().map(|metric| metric.value);
+        if command_result.ensure_success().is_err() {
+            self.rollback_workspace(context)?;
+            context.run.consecutive_crashes += 1;
+            return Ok((ExperimentStatus::Crashed, None));
+        }
 
+        match parse_metric(
+            &self.config.metric,
+            &context.archive.run_log_path,
+            previous_best,
+        ) {
+            Ok(snapshot) if snapshot.improved => {
+                context.run.best_metric = Some(snapshot.clone());
+                context.run.best_commit = context.experiment.candidate_commit.clone();
+                context.run.consecutive_crashes = 0;
+                context.run.consecutive_regressions = 0;
+                context.experiment.metric_snapshot = Some(snapshot.clone());
+                Ok((ExperimentStatus::Kept, Some(snapshot)))
+            }
+            Ok(snapshot) => {
+                self.rollback_workspace(context)?;
+                context.run.consecutive_regressions += 1;
+                context.experiment.metric_snapshot = Some(snapshot.clone());
+                Ok((ExperimentStatus::Discarded, Some(snapshot)))
+            }
+            Err(_) => {
+                self.rollback_workspace(context)?;
+                context.run.consecutive_crashes += 1;
+                Ok((ExperimentStatus::Crashed, None))
+            }
+        }
+    }
+
+    fn rollback_workspace<R: AgentRunner>(&self, context: &mut ExperimentContext<R>) -> Result<()> {
+        context.workspace.reset_hard(&context.base_commit)?;
+        context.workspace.clean_user_untracked()?;
+        Ok(())
+    }
+
+    fn archive_results<R: AgentRunner>(
+        &self,
+        context: &mut ExperimentContext<R>,
+        status: ExperimentStatus,
+        _metric: Option<MetricSnapshot>,
+    ) -> Result<()> {
         let analysis = self.call_agent(
-            agent,
+            &context.agent,
             AgentRole::Analyst,
             "解释实验结果并生成复盘。",
-            &fs::read_to_string(&archive.log_excerpt_path).unwrap_or_default(),
-            &allowed_paths,
+            &fs::read_to_string(&context.archive.log_excerpt_path).unwrap_or_default(),
+            &context.allowed_paths,
         )?;
-        ArchiveStore::write_text(&archive.analysis_path, &analysis.stdout)?;
+        ArchiveStore::write_text(&context.archive.analysis_path, &analysis.stdout)?;
         let reflection = self.call_agent(
-            agent,
+            &context.agent,
             AgentRole::Memory,
             "将复盘转成记忆候选。",
             &analysis.stdout,
-            &allowed_paths,
+            &context.allowed_paths,
         )?;
-        ArchiveStore::write_text(&archive.reflection_path, &reflection.stdout)?;
+        ArchiveStore::write_text(&context.archive.reflection_path, &reflection.stdout)?;
 
-        let experiment_record = render_experiment_record(&experiment, &archive.run_log_path);
-        memory.append_experiment(&experiment_record)?;
+        let experiment_record =
+            render_experiment_record(&context.experiment, &context.archive.run_log_path);
+        context.memory.append_experiment(&experiment_record)?;
 
-        experiment.status = ExperimentStatus::Archived;
-        archive_store.write_manifest(&experiment)?;
-        run.experiment_count += 1;
-        fs::write(state_path, toml::to_string_pretty(&run)?)?;
+        context.experiment.status = ExperimentStatus::Archived;
+        context.archive_store.write_manifest(&context.experiment)?;
+        context.run.experiment_count += 1;
+        fs::write(&context.state_path, toml::to_string_pretty(&context.run)?)?;
 
-        Ok(RunOnceOutcome {
-            experiment_id: experiment.id,
-            status,
-            metric,
-            archive_path: experiment.archive_path,
-        })
+        Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn archive_crash(
+    fn archive_crash<R: AgentRunner>(
         &self,
-        workspace: Workspace,
-        memory: MemoryStore,
-        archive_store: ArchiveStore,
-        mut run: Run,
-        mut experiment: crate::core::Experiment,
-        archive: crate::core::ExperimentArchive,
-        base_commit: String,
+        context: &mut ExperimentContext<R>,
         err: HarnessError,
-    ) -> Result<RunOnceOutcome> {
-        workspace.reset_hard(&base_commit)?;
-        workspace.clean_user_untracked()?;
-        experiment.status = ExperimentStatus::Crashed;
-        run.consecutive_crashes += 1;
-        run.experiment_count += 1;
+    ) -> Result<()> {
+        self.rollback_workspace(context)?;
+        context.experiment.status = ExperimentStatus::Crashed;
+        context.run.consecutive_crashes += 1;
+        context.run.experiment_count += 1;
 
         ArchiveStore::write_text(
-            &archive.analysis_path,
+            &context.archive.analysis_path,
             format!("Experiment crashed before command execution.\n\nError: {err}\n"),
         )?;
         ArchiveStore::write_text(
-            &archive.reflection_path,
+            &context.archive.reflection_path,
             "Failure archived. Review the error and diff before retrying.\n",
         )?;
-        let experiment_record = render_experiment_record(&experiment, &archive.run_log_path);
-        memory.append_experiment(&experiment_record)?;
-        experiment.status = ExperimentStatus::Archived;
-        archive_store.write_manifest(&experiment)?;
-        fs::write(archive_store.state_path(), toml::to_string_pretty(&run)?)?;
+        let experiment_record =
+            render_experiment_record(&context.experiment, &context.archive.run_log_path);
+        context.memory.append_experiment(&experiment_record)?;
+        context.experiment.status = ExperimentStatus::Archived;
+        context.archive_store.write_manifest(&context.experiment)?;
+        fs::write(&context.state_path, toml::to_string_pretty(&context.run)?)?;
 
-        Ok(RunOnceOutcome {
-            experiment_id: experiment.id,
-            status: ExperimentStatus::Crashed,
-            metric: None,
-            archive_path: experiment.archive_path,
-        })
+        Ok(())
     }
 
     fn call_agent<R: AgentRunner>(
