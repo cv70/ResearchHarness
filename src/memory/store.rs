@@ -19,6 +19,13 @@ pub struct MemorySnapshot {
     pub playbook: String,
 }
 
+const DEFAULT_CONTENTS: &[(&str, &str)] = &[
+    ("business.md", "# 业务说明\n\n"),
+    ("experiments.md", "# 实验记录\n\n"),
+    ("decisions.md", "# 决策记忆\n\n"),
+    ("playbook.md", "# 研究手册\n\n"),
+];
+
 impl MemoryStore {
     pub fn new(workspace_root: impl AsRef<Path>) -> Self {
         Self {
@@ -31,10 +38,9 @@ impl MemoryStore {
 
     pub fn init(&self) -> Result<()> {
         fs::create_dir_all(&self.root)?;
-        self.ensure_file("business.md", "# 业务说明\n\n")?;
-        self.ensure_file("experiments.md", "# 实验记录\n\n")?;
-        self.ensure_file("decisions.md", "# 决策记忆\n\n")?;
-        self.ensure_file("playbook.md", "# 研究手册\n\n")?;
+        for &(name, content) in DEFAULT_CONTENTS {
+            self.ensure_file(name, content)?;
+        }
         Ok(())
     }
 
@@ -77,11 +83,17 @@ impl MemoryStore {
     }
 
     fn append(&self, name: &str, text: &str) -> Result<()> {
-        self.init()?;
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.root.join(name))?;
+        fs::create_dir_all(&self.root)?;
+        let path = self.root.join(name);
+        if !path.exists() {
+            if let Some(&(_, default_content)) = DEFAULT_CONTENTS.iter().find(|&&(n, _)| n == name)
+            {
+                fs::write(&path, default_content)?;
+            } else {
+                fs::write(&path, "")?;
+            }
+        }
+        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
         if !text.starts_with('\n') {
             writeln!(file)?;
         }
