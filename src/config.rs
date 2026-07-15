@@ -50,6 +50,12 @@ pub struct MetricConfig {
     pub direction: MetricDirection,
 }
 
+impl MetricConfig {
+    pub fn compiled_regex(&self) -> Result<regex::Regex> {
+        regex::Regex::new(&self.regex).map_err(Into::into)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentConfig {
     #[serde(default = "default_agent_backend")]

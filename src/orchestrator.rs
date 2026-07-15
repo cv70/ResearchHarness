@@ -301,7 +301,7 @@ impl Orchestrator {
     fn archive_results<R: AgentRunner>(
         &self,
         context: &mut ExperimentContext<R>,
-        status: ExperimentStatus,
+        _status: ExperimentStatus,
         _metric: Option<MetricSnapshot>,
     ) -> Result<()> {
         let analysis = self.call_agent(

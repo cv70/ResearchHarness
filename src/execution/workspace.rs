@@ -1,5 +1,4 @@
 use std::{
-    fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -108,25 +107,12 @@ impl Workspace {
     }
 
     pub fn clean_user_untracked(&self) -> Result<()> {
-        let out = self.git(["status", "--porcelain"])?;
-        for line in out.lines() {
-            if !line.starts_with("?? ") {
-                continue;
-            }
-            let Some(raw_path) = line.get(3..) else {
-                continue;
-            };
-            let path = PathBuf::from(raw_path);
-            if path.starts_with(".research-harness") {
-                continue;
-            }
-            let full_path = self.root.join(&path);
-            if full_path.is_dir() {
-                fs::remove_dir_all(full_path)?;
-            } else if full_path.exists() {
-                fs::remove_file(full_path)?;
-            }
-        }
+        self.git([
+            "clean",
+            "-f",
+            "-d",
+            "--exclude=.research-harness/",
+        ])?;
         Ok(())
     }
 

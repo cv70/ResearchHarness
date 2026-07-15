@@ -1,10 +1,10 @@
 use std::{
     io::Write,
     process::{Command, Stdio},
-    thread,
-    time::Duration,
-    time::Instant,
+    time::{Duration, Instant},
 };
+
+use wait_timeout::ChildExt;
 
 use crate::{
     agents::{AgentRequest, AgentResponse, AgentRunner},
@@ -41,21 +41,20 @@ impl AgentRunner for CliAgentRunner {
         if let Some(mut stdin) = child.stdin.take() {
             stdin.write_all(prompt.as_bytes())?;
         }
+
         let timeout = Duration::from_secs(request.timeout_seconds);
-        loop {
-            if child.try_wait()?.is_some() {
-                break;
-            }
-            if started.elapsed() >= timeout {
-                child.kill()?;
+        match child.wait_timeout(timeout)? {
+            None => {
+                let _ = child.kill();
                 let _ = child.wait();
                 return Err(HarnessError::Agent(format!(
                     "{} timed out after {}s",
                     self.program, request.timeout_seconds
                 )));
             }
-            thread::sleep(Duration::from_millis(100));
+            Some(_) => {}
         }
+
         let output = child.wait_with_output()?;
         let exit_status = output.status.code();
         if !output.status.success() {

@@ -1,7 +1,5 @@
 use std::{fs, path::Path};
 
-use regex::Regex;
-
 use crate::{
     config::MetricConfig,
     core::{HarnessError, MetricSnapshot, Result},
@@ -14,7 +12,7 @@ pub fn parse_metric(
     previous_best: Option<f64>,
 ) -> Result<MetricSnapshot> {
     let raw = fs::read_to_string(&log_path)?;
-    let regex = Regex::new(&config.regex)?;
+    let regex = config.compiled_regex()?;
     let capture = regex
         .captures(&raw)
         .and_then(|captures| captures.get(1))
