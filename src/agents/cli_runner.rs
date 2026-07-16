@@ -43,16 +43,13 @@ impl AgentRunner for CliAgentRunner {
         }
 
         let timeout = Duration::from_secs(request.timeout_seconds);
-        match child.wait_timeout(timeout)? {
-            None => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(HarnessError::Agent(format!(
-                    "{} timed out after {}s",
-                    self.program, request.timeout_seconds
-                )));
-            }
-            Some(_) => {}
+        if child.wait_timeout(timeout)?.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(HarnessError::Agent(format!(
+                "{} timed out after {}s",
+                self.program, request.timeout_seconds
+            )));
         }
 
         let output = child.wait_with_output()?;

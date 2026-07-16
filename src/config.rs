@@ -108,6 +108,9 @@ impl Config {
                 "metric.regex cannot be empty".to_string(),
             ));
         }
+        self.metric
+            .compiled_regex()
+            .map_err(|e| HarnessError::InvalidConfig(format!("invalid metric regex: {e}")))?;
         let policy = PathPolicy::new(
             self.workspace.modifiable.clone(),
             self.workspace.readonly.clone(),
@@ -205,5 +208,30 @@ backend = "mock"
 "#;
         let config: Config = toml::from_str(raw).unwrap();
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_regex() {
+        let raw = r#"
+[project]
+name = "x"
+
+[workspace]
+modifiable = ["train.py"]
+
+[experiment]
+command = "echo ok"
+
+[metric]
+name = "score"
+regex = "score: ([0-9.]+"
+direction = "higher"
+
+[agent]
+backend = "mock"
+"#;
+        let config: Config = toml::from_str(raw).unwrap();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("invalid metric regex"));
     }
 }

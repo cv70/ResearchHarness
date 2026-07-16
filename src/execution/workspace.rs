@@ -107,12 +107,7 @@ impl Workspace {
     }
 
     pub fn clean_user_untracked(&self) -> Result<()> {
-        self.git([
-            "clean",
-            "-f",
-            "-d",
-            "--exclude=.research-harness/",
-        ])?;
+        self.git(["clean", "-f", "-d", "--exclude=.research-harness/"])?;
         Ok(())
     }
 

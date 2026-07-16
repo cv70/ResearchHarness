@@ -48,23 +48,22 @@ pub fn run_command(
         .spawn()?;
 
     let timeout = Duration::from_secs(command.timeout_seconds);
-    match child.wait_timeout(timeout)? {
-        Some(status) => Ok(CommandResult {
+    if let Some(status) = child.wait_timeout(timeout)? {
+        Ok(CommandResult {
             exit_code: status.code(),
             duration: started.elapsed(),
             log_path: log_path.clone(),
             timed_out: false,
-        }),
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            Ok(CommandResult {
-                exit_code: None,
-                duration: started.elapsed(),
-                log_path: log_path.clone(),
-                timed_out: true,
-            })
-        }
+        })
+    } else {
+        let _ = child.kill();
+        let _ = child.wait();
+        Ok(CommandResult {
+            exit_code: None,
+            duration: started.elapsed(),
+            log_path: log_path.clone(),
+            timed_out: true,
+        })
     }
 }
 
