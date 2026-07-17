@@ -98,12 +98,12 @@ pub fn write_log_excerpt(
     max_lines: usize,
 ) -> Result<()> {
     let raw = fs::read_to_string(source)?;
-    let lines: Vec<&str> = raw.lines().collect();
-    let excerpt = if lines.len() <= max_lines {
+    let line_count = raw.lines().count();
+    let excerpt = if line_count <= max_lines {
         raw
     } else {
-        let start = lines.len().saturating_sub(max_lines);
-        lines[start..].join("\n")
+        let skip = line_count.saturating_sub(max_lines);
+        raw.lines().skip(skip).collect::<Vec<_>>().join("\n")
     };
     ArchiveStore::write_text(destination, excerpt)?;
     Ok(())

@@ -71,14 +71,8 @@ pub fn run() -> Result<()> {
             let config = Config::load(&cli.root)?;
             let backend = config.agent.backend.clone();
             let orchestrator = Orchestrator::new(&cli.root, config);
-            if backend == "mock" {
-                let outcome = orchestrator.run_once(&tag, &MockAgentRunner)?;
-                print_outcome(outcome);
-            } else {
-                let runner = CliAgentRunner::new(backend, Vec::new());
-                let outcome = orchestrator.run_once(&tag, &runner)?;
-                print_outcome(outcome);
-            }
+            let outcome = run_with_backend(&orchestrator, &tag, &backend)?;
+            print_outcome(outcome);
         }
         Command::Status { tag } => {
             let config = Config::load(&cli.root)?;
@@ -112,4 +106,17 @@ fn print_outcome(outcome: crate::orchestrator::RunOnceOutcome) {
         println!("metric: unavailable");
     }
     println!("archive: {}", outcome.archive_path.display());
+}
+
+fn run_with_backend(
+    orchestrator: &Orchestrator,
+    tag: &str,
+    backend: &str,
+) -> Result<crate::orchestrator::RunOnceOutcome> {
+    if backend == "mock" {
+        orchestrator.run_once(tag, &MockAgentRunner)
+    } else {
+        let runner = CliAgentRunner::new(backend, Vec::new());
+        orchestrator.run_once(tag, &runner)
+    }
 }

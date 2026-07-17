@@ -55,11 +55,11 @@ impl AgentRunner for CliAgentRunner {
         let output = child.wait_with_output()?;
         let exit_status = output.status.code();
         if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
             return Err(HarnessError::Agent(format!(
-                "{} exited with {:?}: {}",
-                self.program,
-                exit_status,
-                String::from_utf8(output.stderr)?
+                "{} exited with {:?}\n--- stderr ---\n{}\n--- stdout ---\n{}",
+                self.program, exit_status, stderr, stdout
             )));
         }
         Ok(AgentResponse {

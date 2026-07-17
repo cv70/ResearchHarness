@@ -320,17 +320,7 @@ impl Orchestrator {
             &context.allowed_paths,
         )?;
         ArchiveStore::write_text(&context.archive.reflection_path, &reflection.stdout)?;
-
-        let experiment_record =
-            render_experiment_record(&context.experiment, &context.archive.run_log_path);
-        context.memory.append_experiment(&experiment_record)?;
-
-        context.experiment.status = ExperimentStatus::Archived;
-        context.archive_store.write_manifest(&context.experiment)?;
-        context.run.experiment_count += 1;
-        fs::write(&context.state_path, toml::to_string_pretty(&context.run)?)?;
-
-        Ok(())
+        self.finalize_experiment(context)
     }
 
     fn archive_crash<R: AgentRunner>(
@@ -351,9 +341,17 @@ impl Orchestrator {
             &context.archive.reflection_path,
             "Failure archived. Review the error and diff before retrying.\n",
         )?;
+        self.finalize_experiment(context)
+    }
+
+    fn finalize_experiment<R: AgentRunner>(
+        &self,
+        context: &mut ExperimentContext<R>,
+    ) -> Result<()> {
         let experiment_record =
             render_experiment_record(&context.experiment, &context.archive.run_log_path);
         context.memory.append_experiment(&experiment_record)?;
+
         context.experiment.status = ExperimentStatus::Archived;
         context.archive_store.write_manifest(&context.experiment)?;
         fs::write(&context.state_path, toml::to_string_pretty(&context.run)?)?;

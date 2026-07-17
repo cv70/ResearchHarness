@@ -54,4 +54,47 @@ mod tests {
         assert_eq!(snapshot.value, 0.9979);
         assert!(snapshot.improved);
     }
+
+    #[test]
+    fn parses_metric_and_compares_higher() {
+        let dir = tempdir().unwrap();
+        let log = dir.path().join("run.log");
+        fs::write(&log, "accuracy: 0.95\n").unwrap();
+        let config = MetricConfig {
+            name: "accuracy".to_string(),
+            regex: "^accuracy:\\s+([0-9.]+)".to_string(),
+            direction: MetricDirection::Higher,
+        };
+        let snapshot = parse_metric(&config, &log, Some(0.9)).unwrap();
+        assert_eq!(snapshot.value, 0.95);
+        assert!(snapshot.improved);
+    }
+
+    #[test]
+    fn returns_error_when_metric_not_found() {
+        let dir = tempdir().unwrap();
+        let log = dir.path().join("run.log");
+        fs::write(&log, "no relevant content here\n").unwrap();
+        let config = MetricConfig {
+            name: "val_bpb".to_string(),
+            regex: "^val_bpb:\\s+([0-9.]+)".to_string(),
+            direction: MetricDirection::Lower,
+        };
+        let result = parse_metric(&config, &log, None);
+        assert!(matches!(result, Err(HarnessError::MetricNotFound(_))));
+    }
+
+    #[test]
+    fn first_metric_always_improves() {
+        let dir = tempdir().unwrap();
+        let log = dir.path().join("run.log");
+        fs::write(&log, "score: 42.5\n").unwrap();
+        let config = MetricConfig {
+            name: "score".to_string(),
+            regex: "^score:\\s+([0-9.]+)".to_string(),
+            direction: MetricDirection::Higher,
+        };
+        let snapshot = parse_metric(&config, &log, None).unwrap();
+        assert!(snapshot.improved);
+    }
 }
