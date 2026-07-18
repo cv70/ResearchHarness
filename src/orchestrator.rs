@@ -95,7 +95,7 @@ impl Orchestrator {
                 })
             }
             Err(err) => {
-                self.archive_crash(&mut context, err)?;
+                Self::archive_crash(&mut context, &err)?;
                 Ok(RunOnceOutcome {
                     experiment_id,
                     status: ExperimentStatus::Crashed,
@@ -226,14 +226,14 @@ impl Orchestrator {
         context.experiment.status = ExperimentStatus::Reviewed;
         context.archive_store.write_manifest(&context.experiment)?;
 
-        let candidate_commit = if !changed_files.is_empty() {
+        let candidate_commit = if changed_files.is_empty() {
+            None
+        } else {
             let commit = context.workspace.commit_paths(
                 &changed_files,
                 &format!("experiment {}", context.experiment.id),
             )?;
             Some(commit)
-        } else {
-            None
         };
         context.experiment.candidate_commit = candidate_commit;
         Ok(())
@@ -260,7 +260,7 @@ impl Orchestrator {
 
         let previous_best = context.run.best_metric.as_ref().map(|metric| metric.value);
         if command_result.ensure_success().is_err() {
-            self.rollback_workspace(context)?;
+            Self::rollback_workspace(context)?;
             context.run.consecutive_crashes += 1;
             return Ok((ExperimentStatus::Crashed, None));
         }
@@ -279,20 +279,20 @@ impl Orchestrator {
                 Ok((ExperimentStatus::Kept, Some(snapshot)))
             }
             Ok(snapshot) => {
-                self.rollback_workspace(context)?;
+                Self::rollback_workspace(context)?;
                 context.run.consecutive_regressions += 1;
                 context.experiment.metric_snapshot = Some(snapshot.clone());
                 Ok((ExperimentStatus::Discarded, Some(snapshot)))
             }
             Err(_) => {
-                self.rollback_workspace(context)?;
+                Self::rollback_workspace(context)?;
                 context.run.consecutive_crashes += 1;
                 Ok((ExperimentStatus::Crashed, None))
             }
         }
     }
 
-    fn rollback_workspace<R: AgentRunner>(&self, context: &mut ExperimentContext<R>) -> Result<()> {
+    fn rollback_workspace<R: AgentRunner>(context: &mut ExperimentContext<R>) -> Result<()> {
         context.workspace.reset_hard(&context.base_commit)?;
         context.workspace.clean_user_untracked()?;
         Ok(())
@@ -320,15 +320,14 @@ impl Orchestrator {
             &context.allowed_paths,
         )?;
         ArchiveStore::write_text(&context.archive.reflection_path, &reflection.stdout)?;
-        self.finalize_experiment(context)
+        Self::finalize_experiment(context)
     }
 
     fn archive_crash<R: AgentRunner>(
-        &self,
         context: &mut ExperimentContext<R>,
-        err: HarnessError,
+        err: &HarnessError,
     ) -> Result<()> {
-        self.rollback_workspace(context)?;
+        Self::rollback_workspace(context)?;
         context.experiment.status = ExperimentStatus::Crashed;
         context.run.consecutive_crashes += 1;
         context.run.experiment_count += 1;
@@ -341,13 +340,10 @@ impl Orchestrator {
             &context.archive.reflection_path,
             "Failure archived. Review the error and diff before retrying.\n",
         )?;
-        self.finalize_experiment(context)
+        Self::finalize_experiment(context)
     }
 
-    fn finalize_experiment<R: AgentRunner>(
-        &self,
-        context: &mut ExperimentContext<R>,
-    ) -> Result<()> {
+    fn finalize_experiment<R: AgentRunner>(context: &mut ExperimentContext<R>) -> Result<()> {
         let experiment_record =
             render_experiment_record(&context.experiment, &context.archive.run_log_path);
         context.memory.append_experiment(&experiment_record)?;
@@ -383,16 +379,14 @@ fn render_experiment_record(
     experiment: &crate::core::Experiment,
     log_path: &std::path::Path,
 ) -> String {
-    let metric = experiment
-        .metric_snapshot
-        .as_ref()
-        .map(|m| format!("{}={:.6}", m.name, m.value))
-        .unwrap_or_else(|| "unavailable".to_string());
-    let commit = experiment
-        .candidate_commit
-        .as_deref()
-        .map(|s| s.chars().take(7).collect::<String>())
-        .unwrap_or_else(|| "no-commit".to_string());
+    let metric = experiment.metric_snapshot.as_ref().map_or_else(
+        || "unavailable".to_string(),
+        |m| format!("{}={:.6}", m.name, m.value),
+    );
+    let commit = experiment.candidate_commit.as_deref().map_or_else(
+        || "no-commit".to_string(),
+        |s| s.chars().take(7).collect::<String>(),
+    );
     format!(
         "## {} - {} - {}\n\n- Status: {:?}\n- Metric: {}\n- Hypothesis: {}\n- Archive: `{}`\n- Follow-up: review `analysis.md` and `reflection.md`.\n",
         Utc::now().format("%Y-%m-%d %H:%M:%S"),

@@ -7,6 +7,7 @@ pub struct LearningBuckets {
     pub playbook: Vec<Learning>,
 }
 
+#[must_use]
 pub fn bucket_learning(items: Vec<Learning>) -> LearningBuckets {
     let mut buckets = LearningBuckets::default();
     for item in items {
@@ -19,6 +20,7 @@ pub fn bucket_learning(items: Vec<Learning>) -> LearningBuckets {
     buckets
 }
 
+#[must_use]
 pub fn render_learning(item: &Learning) -> String {
     format!(
         "- Summary: {}\n- Evidence: {}\n- Action: {}\n- Sources: {}\n",

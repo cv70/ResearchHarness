@@ -17,6 +17,7 @@ impl Workspace {
         }
     }
 
+    #[must_use]
     pub fn root(&self) -> &Path {
         &self.root
     }

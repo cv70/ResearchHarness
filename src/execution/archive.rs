@@ -43,6 +43,7 @@ impl ArchiveStore {
         })
     }
 
+    #[must_use]
     pub fn state_path(&self) -> PathBuf {
         self.root.join("state.toml")
     }

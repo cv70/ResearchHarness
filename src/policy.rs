@@ -37,13 +37,13 @@ impl PathPattern {
             PathPattern::Prefix(pattern) => path.starts_with(pattern),
             PathPattern::Extension(ext) => path
                 .extension()
-                .map(|e| e.to_string_lossy() == *ext)
-                .unwrap_or(false),
+                .is_some_and(|e| e.to_string_lossy() == *ext),
         }
     }
 }
 
 impl PathPolicy {
+    #[must_use]
     pub fn new(modifiable: Vec<String>, readonly: Vec<String>) -> Self {
         Self {
             modifiable: modifiable
@@ -92,13 +92,13 @@ impl PathPolicy {
     {
         for path in paths {
             let path = path.as_ref();
-            if self.matches_any(path, &self.readonly) {
+            if Self::matches_any(path, &self.readonly) {
                 return Err(HarnessError::PathPolicy(format!(
                     "readonly path changed: {}",
                     path.display()
                 )));
             }
-            if !self.matches_any(path, &self.modifiable) {
+            if !Self::matches_any(path, &self.modifiable) {
                 return Err(HarnessError::PathPolicy(format!(
                     "path is outside modifiable set: {}",
                     path.display()
@@ -108,19 +108,17 @@ impl PathPolicy {
         Ok(())
     }
 
-    fn matches_any(&self, path: &Path, patterns: &[PathPattern]) -> bool {
+    fn matches_any(path: &Path, patterns: &[PathPattern]) -> bool {
         patterns.iter().any(|pattern| pattern.matches(path))
     }
 }
 
+#[must_use]
 pub fn is_improved(current: f64, previous_best: Option<f64>, direction: MetricDirection) -> bool {
-    match previous_best {
-        None => true,
-        Some(best) => match direction {
-            MetricDirection::Lower => current < best,
-            MetricDirection::Higher => current > best,
-        },
-    }
+    previous_best.is_none_or(|best| match direction {
+        MetricDirection::Lower => current < best,
+        MetricDirection::Higher => current > best,
+    })
 }
 
 #[cfg(test)]

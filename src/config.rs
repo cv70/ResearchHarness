@@ -119,6 +119,7 @@ impl Config {
         Ok(())
     }
 
+    #[must_use]
     pub fn default_toml() -> &'static str {
         r#"[project]
 name = "autoresearch"
