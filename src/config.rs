@@ -83,31 +83,15 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.project.name.trim().is_empty() {
-            return Err(HarnessError::InvalidConfig(
-                "project.name cannot be empty".to_string(),
-            ));
-        }
+        require_non_empty(&self.project.name, "project.name")?;
         if self.workspace.modifiable.is_empty() {
             return Err(HarnessError::InvalidConfig(
                 "workspace.modifiable cannot be empty".to_string(),
             ));
         }
-        if self.experiment.command.trim().is_empty() {
-            return Err(HarnessError::InvalidConfig(
-                "experiment.command cannot be empty".to_string(),
-            ));
-        }
-        if self.metric.name.trim().is_empty() {
-            return Err(HarnessError::InvalidConfig(
-                "metric.name cannot be empty".to_string(),
-            ));
-        }
-        if self.metric.regex.trim().is_empty() {
-            return Err(HarnessError::InvalidConfig(
-                "metric.regex cannot be empty".to_string(),
-            ));
-        }
+        require_non_empty(&self.experiment.command, "experiment.command")?;
+        require_non_empty(&self.metric.name, "metric.name")?;
+        require_non_empty(&self.metric.regex, "metric.regex")?;
         self.metric
             .compiled_regex()
             .map_err(|e| HarnessError::InvalidConfig(format!("invalid metric regex: {e}")))?;
@@ -149,6 +133,15 @@ backend = "mock"
 
 fn default_log_file() -> String {
     "run.log".to_string()
+}
+
+fn require_non_empty(value: &str, field: &str) -> Result<()> {
+    if value.trim().is_empty() {
+        return Err(HarnessError::InvalidConfig(format!(
+            "{field} cannot be empty"
+        )));
+    }
+    Ok(())
 }
 
 fn default_timeout_seconds() -> u64 {

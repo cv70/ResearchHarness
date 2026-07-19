@@ -73,11 +73,11 @@ impl Workspace {
         I: IntoIterator<Item = P>,
         P: AsRef<Path>,
     {
-        let mut args = vec!["add".to_string(), "--".to_string()];
+        let mut args: Vec<String> = vec!["add".to_string(), "--".to_string()];
         args.extend(
             paths
                 .into_iter()
-                .map(|path| path.as_ref().to_string_lossy().to_string()),
+                .map(|path| path.as_ref().to_string_lossy().into_owned()),
         );
         if args.len() == 2 {
             return Ok(());
@@ -122,7 +122,11 @@ impl Workspace {
     }
 
     pub fn has_user_changes(&self) -> Result<bool> {
-        Ok(!self.user_changed_files()?.is_empty())
+        let out = self.git(["status", "--porcelain"])?;
+        Ok(out.lines().any(|line| {
+            line.get(3..)
+                .is_some_and(|path| !path.starts_with(".research-harness"))
+        }))
     }
 
     fn git<I, S>(&self, args: I) -> Result<String>
@@ -130,15 +134,15 @@ impl Workspace {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let args_vec: Vec<String> = args.into_iter().map(|s| s.as_ref().to_string()).collect();
+        let args_vec: Vec<S> = args.into_iter().collect();
         let output = Command::new("git")
-            .args(&args_vec)
+            .args(args_vec.iter().map(|s| s.as_ref()))
             .current_dir(&self.root)
             .output()?;
         if !output.status.success() {
             return Err(HarnessError::CommandFailed {
                 program: "git".to_string(),
-                args: args_vec,
+                args: args_vec.iter().map(|s| s.as_ref().to_string()).collect(),
                 stderr: String::from_utf8(output.stderr)?,
             });
         }

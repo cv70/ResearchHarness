@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::path::Path;
 
 use crate::{
     config::MetricConfig,
@@ -8,13 +8,13 @@ use crate::{
 
 pub fn parse_metric(
     config: &MetricConfig,
-    log_path: impl AsRef<Path>,
+    log_content: &str,
+    source_log: impl AsRef<Path>,
     previous_best: Option<f64>,
 ) -> Result<MetricSnapshot> {
-    let raw = fs::read_to_string(&log_path)?;
     let regex = config.compiled_regex()?;
     let capture = regex
-        .captures(&raw)
+        .captures(log_content)
         .and_then(|captures| captures.get(1))
         .ok_or_else(|| HarnessError::MetricNotFound(config.name.clone()))?;
     let value: f64 = capture.as_str().parse().map_err(|err| {
@@ -27,74 +27,72 @@ pub fn parse_metric(
         previous_best,
         direction: config.direction,
         improved,
-        source_log: log_path.as_ref().to_path_buf(),
+        source_log: source_log.as_ref().to_path_buf(),
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
-    use tempfile::tempdir;
+    use std::path::Path;
 
     use super::*;
     use crate::core::MetricDirection;
 
     #[test]
     fn parses_metric_and_compares_lower() {
-        let dir = tempdir().unwrap();
-        let log = dir.path().join("run.log");
-        fs::write(&log, "val_bpb:          0.997900\n").unwrap();
         let config = MetricConfig {
             name: "val_bpb".to_string(),
             regex: "^val_bpb:\\s+([0-9.]+)".to_string(),
             direction: MetricDirection::Lower,
         };
-        let snapshot = parse_metric(&config, &log, Some(1.0)).unwrap();
+        let snapshot = parse_metric(
+            &config,
+            "val_bpb:          0.997900\n",
+            Path::new("run.log"),
+            Some(1.0),
+        )
+        .unwrap();
         assert_eq!(snapshot.value, 0.9979);
         assert!(snapshot.improved);
     }
 
     #[test]
     fn parses_metric_and_compares_higher() {
-        let dir = tempdir().unwrap();
-        let log = dir.path().join("run.log");
-        fs::write(&log, "accuracy: 0.95\n").unwrap();
         let config = MetricConfig {
             name: "accuracy".to_string(),
             regex: "^accuracy:\\s+([0-9.]+)".to_string(),
             direction: MetricDirection::Higher,
         };
-        let snapshot = parse_metric(&config, &log, Some(0.9)).unwrap();
+        let snapshot =
+            parse_metric(&config, "accuracy: 0.95\n", Path::new("run.log"), Some(0.9)).unwrap();
         assert_eq!(snapshot.value, 0.95);
         assert!(snapshot.improved);
     }
 
     #[test]
     fn returns_error_when_metric_not_found() {
-        let dir = tempdir().unwrap();
-        let log = dir.path().join("run.log");
-        fs::write(&log, "no relevant content here\n").unwrap();
         let config = MetricConfig {
             name: "val_bpb".to_string(),
             regex: "^val_bpb:\\s+([0-9.]+)".to_string(),
             direction: MetricDirection::Lower,
         };
-        let result = parse_metric(&config, &log, None);
+        let result = parse_metric(
+            &config,
+            "no relevant content here\n",
+            Path::new("run.log"),
+            None,
+        );
         assert!(matches!(result, Err(HarnessError::MetricNotFound(_))));
     }
 
     #[test]
     fn first_metric_always_improves() {
-        let dir = tempdir().unwrap();
-        let log = dir.path().join("run.log");
-        fs::write(&log, "score: 42.5\n").unwrap();
         let config = MetricConfig {
             name: "score".to_string(),
             regex: "^score:\\s+([0-9.]+)".to_string(),
             direction: MetricDirection::Higher,
         };
-        let snapshot = parse_metric(&config, &log, None).unwrap();
+        let snapshot = parse_metric(&config, "score: 42.5\n", Path::new("run.log"), None).unwrap();
         assert!(snapshot.improved);
     }
 }

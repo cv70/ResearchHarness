@@ -1,4 +1,7 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use chrono::Utc;
 
@@ -41,6 +44,7 @@ struct ExperimentContext<R: AgentRunner> {
     allowed_paths: Vec<PathBuf>,
     agent: R,
     state_path: PathBuf,
+    plan: String,
 }
 
 impl Orchestrator {
@@ -70,8 +74,8 @@ impl Orchestrator {
         Ok(run)
     }
 
-    pub fn status(&self, tag: &str) -> Result<String> {
-        let archive = ArchiveStore::new(&self.workspace_root, tag);
+    pub fn status(workspace_root: impl AsRef<Path>, tag: &str) -> Result<String> {
+        let archive = ArchiveStore::new(workspace_root, tag);
         let state_path = archive.state_path();
         if !state_path.exists() {
             return Ok(format!("run `{tag}` has not been set up"));
@@ -151,6 +155,7 @@ impl Orchestrator {
             allowed_paths,
             agent,
             state_path,
+            plan: String::new(),
         })
     }
 
@@ -192,6 +197,7 @@ impl Orchestrator {
             &context.allowed_paths,
         )?;
         ArchiveStore::write_text(&context.archive.plan_path, &plan.stdout)?;
+        context.plan = plan.stdout;
         Ok(())
     }
 
@@ -203,7 +209,7 @@ impl Orchestrator {
             &context.agent,
             AgentRole::Coding,
             "按 plan.md 修改允许范围内的代码。",
-            &fs::read_to_string(&context.archive.plan_path).unwrap_or_default(),
+            &context.plan,
             &context.allowed_paths,
         )?;
         let diff = context.workspace.diff()?;
@@ -252,8 +258,9 @@ impl Orchestrator {
         context.archive_store.write_manifest(&context.experiment)?;
 
         let command_result = run_command(&self.workspace_root, &command)?;
+        let log_content = fs::read_to_string(&context.archive.run_log_path).unwrap_or_default();
         let _ = write_log_excerpt(
-            &context.archive.run_log_path,
+            &log_content,
             &context.archive.log_excerpt_path,
             self.config.experiment.max_log_excerpt_lines,
         );
@@ -267,22 +274,24 @@ impl Orchestrator {
 
         match parse_metric(
             &self.config.metric,
+            &log_content,
             &context.archive.run_log_path,
             previous_best,
         ) {
-            Ok(snapshot) if snapshot.improved => {
-                context.run.best_metric = Some(snapshot.clone());
-                context.run.best_commit = context.experiment.candidate_commit.clone();
-                context.run.consecutive_crashes = 0;
-                context.run.consecutive_regressions = 0;
-                context.experiment.metric_snapshot = Some(snapshot.clone());
-                Ok((ExperimentStatus::Kept, Some(snapshot)))
-            }
             Ok(snapshot) => {
-                Self::rollback_workspace(context)?;
-                context.run.consecutive_regressions += 1;
+                let improved = snapshot.improved;
                 context.experiment.metric_snapshot = Some(snapshot.clone());
-                Ok((ExperimentStatus::Discarded, Some(snapshot)))
+                if improved {
+                    context.run.best_metric = Some(snapshot.clone());
+                    context.run.best_commit = context.experiment.candidate_commit.clone();
+                    context.run.consecutive_crashes = 0;
+                    context.run.consecutive_regressions = 0;
+                    Ok((ExperimentStatus::Kept, Some(snapshot)))
+                } else {
+                    Self::rollback_workspace(context)?;
+                    context.run.consecutive_regressions += 1;
+                    Ok((ExperimentStatus::Discarded, Some(snapshot)))
+                }
             }
             Err(_) => {
                 Self::rollback_workspace(context)?;

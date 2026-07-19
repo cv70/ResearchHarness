@@ -81,7 +81,7 @@ impl ArchiveStore {
             archive_path: archive
                 .manifest_path
                 .parent()
-                .expect("manifest path has parent")
+                .unwrap_or_else(|| Path::new("."))
                 .to_path_buf(),
             debug_attempts: 0,
         };
@@ -94,17 +94,22 @@ impl ArchiveStore {
 }
 
 pub fn write_log_excerpt(
-    source: impl AsRef<Path>,
+    content: &str,
     destination: impl AsRef<Path>,
     max_lines: usize,
 ) -> Result<()> {
-    let raw = fs::read_to_string(source)?;
-    let line_count = raw.lines().count();
-    let excerpt = if line_count <= max_lines {
-        raw
+    let excerpt = if max_lines == 0 {
+        String::new()
     } else {
-        let skip = line_count.saturating_sub(max_lines);
-        raw.lines().skip(skip).collect::<Vec<_>>().join("\n")
+        let mut ring: std::collections::VecDeque<&str> =
+            std::collections::VecDeque::with_capacity(max_lines);
+        for line in content.lines() {
+            if ring.len() == max_lines {
+                ring.pop_front();
+            }
+            ring.push_back(line);
+        }
+        ring.into_iter().collect::<Vec<_>>().join("\n")
     };
     ArchiveStore::write_text(destination, excerpt)?;
     Ok(())
@@ -133,10 +138,8 @@ mod tests {
     #[test]
     fn writes_tail_excerpt() {
         let dir = tempdir().unwrap();
-        let source = dir.path().join("run.log");
         let destination = dir.path().join("excerpt.md");
-        fs::write(&source, "a\nb\nc\nd\n").unwrap();
-        write_log_excerpt(&source, &destination, 2).unwrap();
+        write_log_excerpt("a\nb\nc\nd\n", &destination, 2).unwrap();
         assert_eq!(fs::read_to_string(destination).unwrap(), "c\nd");
     }
 }

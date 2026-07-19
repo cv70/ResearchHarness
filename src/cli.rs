@@ -75,9 +75,7 @@ pub fn run() -> Result<()> {
             print_outcome(outcome);
         }
         Command::Status { tag } => {
-            let config = Config::load(&cli.root)?;
-            let orchestrator = Orchestrator::new(&cli.root, config);
-            println!("{}", orchestrator.status(&tag)?);
+            println!("{}", Orchestrator::status(&cli.root, &tag)?);
         }
         Command::Memory { command } => {
             let root = if cli.root.as_os_str() == "." {
