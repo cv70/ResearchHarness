@@ -1,7 +1,7 @@
 pub mod cli_runner;
 pub mod mock;
 
-use std::{path::PathBuf, time::Duration};
+use std::{borrow::Cow, path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +24,7 @@ pub enum AgentRole {
 pub struct AgentRequest {
     pub role: AgentRole,
     pub working_directory: PathBuf,
-    pub system_prompt: String,
+    pub system_prompt: Cow<'static, str>,
     pub task_prompt: String,
     pub allowed_paths: Vec<PathBuf>,
     pub context_files: Vec<PathBuf>,

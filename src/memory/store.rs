@@ -83,7 +83,6 @@ impl MemoryStore {
     }
 
     fn append(&self, name: &str, text: &str) -> Result<()> {
-        fs::create_dir_all(&self.root)?;
         let path = self.root.join(name);
         if !path.exists() {
             if let Some(&(_, default_content)) = DEFAULT_CONTENTS.iter().find(|&&(n, _)| n == name)

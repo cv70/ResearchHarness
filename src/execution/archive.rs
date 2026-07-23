@@ -48,9 +48,13 @@ impl ArchiveStore {
         self.root.join("state.toml")
     }
 
-    pub fn write_manifest(&self, experiment: &Experiment) -> Result<()> {
+    pub fn write_manifest(
+        &self,
+        manifest_path: impl AsRef<Path>,
+        experiment: &Experiment,
+    ) -> Result<()> {
         let manifest = toml::to_string_pretty(experiment)?;
-        fs::write(experiment.archive_path.join("manifest.toml"), manifest)?;
+        fs::write(manifest_path, manifest)?;
         Ok(())
     }
 

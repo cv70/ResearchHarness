@@ -19,10 +19,14 @@ use crate::{
     policy::PathPolicy,
 };
 
+const AGENT_SYSTEM_PROMPT: &str = "你是 ResearchHarness 自动实验系统中的一个角色。";
+
 #[derive(Debug, Clone)]
 pub struct Orchestrator {
     workspace_root: PathBuf,
     config: Config,
+    allowed_paths: Vec<PathBuf>,
+    path_policy: PathPolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -49,9 +53,21 @@ struct ExperimentContext<R: AgentRunner> {
 
 impl Orchestrator {
     pub fn new(workspace_root: impl Into<PathBuf>, config: Config) -> Self {
+        let allowed_paths = config
+            .workspace
+            .modifiable
+            .iter()
+            .map(PathBuf::from)
+            .collect::<Vec<_>>();
+        let path_policy = PathPolicy::new(
+            config.workspace.modifiable.clone(),
+            config.workspace.readonly.clone(),
+        );
         Self {
             workspace_root: workspace_root.into(),
             config,
+            allowed_paths,
+            path_policy,
         }
     }
 
@@ -63,14 +79,11 @@ impl Orchestrator {
     }
 
     pub fn setup_run(&self, tag: &str) -> Result<Run> {
-        let workspace = Workspace::new(&self.workspace_root);
-        workspace.ensure_git_repo()?;
+        let (workspace, memory, archive) = self.ensure_environment(tag)?;
         let branch = workspace.current_branch()?;
         let run = Run::new(tag, branch);
-        let archive = ArchiveStore::new(&self.workspace_root, tag);
-        archive.init_run_dirs()?;
         fs::write(archive.state_path(), toml::to_string_pretty(&run)?)?;
-        MemoryStore::new(&self.workspace_root).init()?;
+        memory.init()?;
         Ok(run)
     }
 
@@ -111,19 +124,14 @@ impl Orchestrator {
     }
 
     fn prepare_context<R: AgentRunner>(&self, tag: &str, agent: R) -> Result<ExperimentContext<R>> {
-        let workspace = Workspace::new(&self.workspace_root);
-        workspace.ensure_git_repo()?;
+        let (workspace, memory, archive_store) = self.ensure_environment(tag)?;
         if workspace.has_user_changes()? {
             return Err(HarnessError::Experiment(
                 "workspace has uncommitted user changes; commit or stash them before running"
                     .to_string(),
             ));
         }
-        let memory = MemoryStore::new(&self.workspace_root);
-        memory.init()?;
 
-        let archive_store = ArchiveStore::new(&self.workspace_root, tag);
-        archive_store.init_run_dirs()?;
         let state_path = archive_store.state_path();
         let run = if state_path.exists() {
             toml::from_str::<Run>(&fs::read_to_string(&state_path)?)?
@@ -136,14 +144,6 @@ impl Orchestrator {
         let (experiment, archive) =
             archive_store.create_experiment(tag, experiment_index, base_commit.clone())?;
 
-        let allowed_paths = self
-            .config
-            .workspace
-            .modifiable
-            .iter()
-            .map(PathBuf::from)
-            .collect::<Vec<_>>();
-
         Ok(ExperimentContext {
             workspace,
             memory,
@@ -152,11 +152,21 @@ impl Orchestrator {
             experiment,
             archive,
             base_commit,
-            allowed_paths,
+            allowed_paths: self.allowed_paths.clone(),
             agent,
             state_path,
             plan: String::new(),
         })
+    }
+
+    fn ensure_environment(&self, tag: &str) -> Result<(Workspace, MemoryStore, ArchiveStore)> {
+        let workspace = Workspace::new(&self.workspace_root);
+        workspace.ensure_git_repo()?;
+        let archive_store = ArchiveStore::new(&self.workspace_root, tag);
+        archive_store.init_run_dirs()?;
+        let memory = MemoryStore::new(&self.workspace_root);
+        memory.init()?;
+        Ok((workspace, memory, archive_store))
     }
 
     fn execute_experiment<R: AgentRunner>(
@@ -215,11 +225,7 @@ impl Orchestrator {
         let diff = context.workspace.diff()?;
         ArchiveStore::write_text(&context.archive.diff_path, &diff)?;
         let changed_files = context.workspace.user_changed_files()?;
-        let path_policy = PathPolicy::new(
-            self.config.workspace.modifiable.clone(),
-            self.config.workspace.readonly.clone(),
-        );
-        path_policy.check_changed_paths(changed_files.iter())?;
+        self.path_policy.check_changed_paths(changed_files.iter())?;
 
         self.call_agent(
             &context.agent,
@@ -230,7 +236,9 @@ impl Orchestrator {
         )?;
 
         context.experiment.status = ExperimentStatus::Reviewed;
-        context.archive_store.write_manifest(&context.experiment)?;
+        context
+            .archive_store
+            .write_manifest(&context.archive.manifest_path, &context.experiment)?;
 
         let candidate_commit = if changed_files.is_empty() {
             None
@@ -255,7 +263,9 @@ impl Orchestrator {
             log_path: context.archive.run_log_path.clone(),
         };
         context.experiment.status = ExperimentStatus::Running;
-        context.archive_store.write_manifest(&context.experiment)?;
+        context
+            .archive_store
+            .write_manifest(&context.archive.manifest_path, &context.experiment)?;
 
         let command_result = run_command(&self.workspace_root, &command)?;
         let log_content = fs::read_to_string(&context.archive.run_log_path).unwrap_or_default();
@@ -358,7 +368,9 @@ impl Orchestrator {
         context.memory.append_experiment(&experiment_record)?;
 
         context.experiment.status = ExperimentStatus::Archived;
-        context.archive_store.write_manifest(&context.experiment)?;
+        context
+            .archive_store
+            .write_manifest(&context.archive.manifest_path, &context.experiment)?;
         fs::write(&context.state_path, toml::to_string_pretty(&context.run)?)?;
 
         Ok(())
@@ -375,7 +387,7 @@ impl Orchestrator {
         agent.run(&AgentRequest {
             role,
             working_directory: self.workspace_root.clone(),
-            system_prompt: "你是 ResearchHarness 自动实验系统中的一个角色。".to_string(),
+            system_prompt: AGENT_SYSTEM_PROMPT.into(),
             task_prompt: format!("{task}\n\n上下文：\n{context}"),
             allowed_paths: allowed_paths.to_vec(),
             context_files: Vec::new(),
@@ -394,7 +406,7 @@ fn render_experiment_record(
     );
     let commit = experiment.candidate_commit.as_deref().map_or_else(
         || "no-commit".to_string(),
-        |s| s.chars().take(7).collect::<String>(),
+        |s| s.get(..7).unwrap_or(s).to_string(),
     );
     format!(
         "## {} - {} - {}\n\n- Status: {:?}\n- Metric: {}\n- Hypothesis: {}\n- Archive: `{}`\n- Follow-up: review `analysis.md` and `reflection.md`.\n",
