@@ -73,16 +73,24 @@ impl Workspace {
         I: IntoIterator<Item = P>,
         P: AsRef<Path>,
     {
-        let mut args: Vec<String> = vec!["add".to_string(), "--".to_string()];
-        args.extend(
-            paths
-                .into_iter()
-                .map(|path| path.as_ref().to_string_lossy().into_owned()),
-        );
-        if args.len() == 2 {
+        let mut cmd = Command::new("git");
+        cmd.arg("add").arg("--").current_dir(&self.root);
+        let mut count = 0;
+        for path in paths {
+            cmd.arg(path.as_ref());
+            count += 1;
+        }
+        if count == 0 {
             return Ok(());
         }
-        self.git(args)?;
+        let output = cmd.output()?;
+        if !output.status.success() {
+            return Err(HarnessError::CommandFailed {
+                program: "git".to_string(),
+                args: vec!["add".to_string(), "--".to_string()],
+                stderr: String::from_utf8(output.stderr)?,
+            });
+        }
         Ok(())
     }
 

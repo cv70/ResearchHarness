@@ -97,24 +97,27 @@ impl ArchiveStore {
     }
 }
 
+pub fn build_log_excerpt(content: &str, max_lines: usize) -> String {
+    if max_lines == 0 {
+        return String::new();
+    }
+    let mut ring: std::collections::VecDeque<&str> =
+        std::collections::VecDeque::with_capacity(max_lines);
+    for line in content.lines() {
+        if ring.len() == max_lines {
+            ring.pop_front();
+        }
+        ring.push_back(line);
+    }
+    ring.into_iter().collect::<Vec<_>>().join("\n")
+}
+
 pub fn write_log_excerpt(
     content: &str,
     destination: impl AsRef<Path>,
     max_lines: usize,
 ) -> Result<()> {
-    let excerpt = if max_lines == 0 {
-        String::new()
-    } else {
-        let mut ring: std::collections::VecDeque<&str> =
-            std::collections::VecDeque::with_capacity(max_lines);
-        for line in content.lines() {
-            if ring.len() == max_lines {
-                ring.pop_front();
-            }
-            ring.push_back(line);
-        }
-        ring.into_iter().collect::<Vec<_>>().join("\n")
-    };
+    let excerpt = build_log_excerpt(content, max_lines);
     ArchiveStore::write_text(destination, excerpt)?;
     Ok(())
 }

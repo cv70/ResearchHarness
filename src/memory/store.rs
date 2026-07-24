@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -9,6 +10,7 @@ use crate::core::Result;
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     root: PathBuf,
+    initialized: Cell<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,14 +35,19 @@ impl MemoryStore {
                 .as_ref()
                 .join(".research-harness")
                 .join("memory"),
+            initialized: Cell::new(false),
         }
     }
 
     pub fn init(&self) -> Result<()> {
+        if self.initialized.get() {
+            return Ok(());
+        }
         fs::create_dir_all(&self.root)?;
         for &(name, content) in DEFAULT_CONTENTS {
             self.ensure_file(name, content)?;
         }
+        self.initialized.set(true);
         Ok(())
     }
 

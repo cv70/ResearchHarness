@@ -112,9 +112,9 @@ fn run_with_backend(
     backend: &str,
 ) -> Result<crate::orchestrator::RunOnceOutcome> {
     if backend == "mock" {
-        orchestrator.run_once(tag, &MockAgentRunner)
+        orchestrator.run_once(tag, MockAgentRunner)
     } else {
         let runner = CliAgentRunner::new(backend, Vec::new());
-        orchestrator.run_once(tag, &runner)
+        orchestrator.run_once(tag, runner)
     }
 }

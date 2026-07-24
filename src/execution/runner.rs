@@ -20,7 +20,6 @@ pub struct ExperimentCommand {
 pub struct CommandResult {
     pub exit_code: Option<i32>,
     pub duration: Duration,
-    pub log_path: PathBuf,
     pub timed_out: bool,
 }
 
@@ -48,22 +47,21 @@ pub fn run_command(
         .spawn()?;
 
     let timeout = Duration::from_secs(command.timeout_seconds);
-    if let Some(status) = child.wait_timeout(timeout)? {
-        Ok(CommandResult {
+    match child.wait_timeout(timeout)? {
+        Some(status) => Ok(CommandResult {
             exit_code: status.code(),
             duration: started.elapsed(),
-            log_path: log_path.clone(),
             timed_out: false,
-        })
-    } else {
-        let _ = child.kill();
-        let _ = child.wait();
-        Ok(CommandResult {
-            exit_code: None,
-            duration: started.elapsed(),
-            log_path: log_path.clone(),
-            timed_out: true,
-        })
+        }),
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Ok(CommandResult {
+                exit_code: None,
+                duration: started.elapsed(),
+                timed_out: true,
+            })
+        }
     }
 }
 

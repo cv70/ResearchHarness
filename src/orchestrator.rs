@@ -10,7 +10,7 @@ use crate::{
     config::Config,
     core::{ExperimentStatus, HarnessError, MetricSnapshot, Result, Run},
     execution::{
-        archive::{ArchiveStore, write_log_excerpt},
+        archive::{ArchiveStore, build_log_excerpt},
         metrics::parse_metric,
         runner::{ExperimentCommand, run_command},
         workspace::Workspace,
@@ -49,6 +49,7 @@ struct ExperimentContext<R: AgentRunner> {
     agent: R,
     state_path: PathBuf,
     plan: String,
+    log_excerpt: String,
 }
 
 impl Orchestrator {
@@ -96,8 +97,8 @@ impl Orchestrator {
         Ok(fs::read_to_string(state_path)?)
     }
 
-    pub fn run_once<R: AgentRunner + Clone>(&self, tag: &str, agent: &R) -> Result<RunOnceOutcome> {
-        let mut context = self.prepare_context(tag, agent.clone())?;
+    pub fn run_once<R: AgentRunner>(&self, tag: &str, agent: R) -> Result<RunOnceOutcome> {
+        let mut context = self.prepare_context(tag, agent)?;
         let experiment_id = context.experiment.id.clone();
         let archive_path = context.experiment.archive_path.clone();
 
@@ -156,6 +157,7 @@ impl Orchestrator {
             agent,
             state_path,
             plan: String::new(),
+            log_excerpt: String::new(),
         })
     }
 
@@ -269,11 +271,9 @@ impl Orchestrator {
 
         let command_result = run_command(&self.workspace_root, &command)?;
         let log_content = fs::read_to_string(&context.archive.run_log_path).unwrap_or_default();
-        let _ = write_log_excerpt(
-            &log_content,
-            &context.archive.log_excerpt_path,
-            self.config.experiment.max_log_excerpt_lines,
-        );
+        context.log_excerpt =
+            build_log_excerpt(&log_content, self.config.experiment.max_log_excerpt_lines);
+        let _ = ArchiveStore::write_text(&context.archive.log_excerpt_path, &context.log_excerpt);
 
         let previous_best = context.run.best_metric.as_ref().map(|metric| metric.value);
         if command_result.ensure_success().is_err() {
@@ -327,7 +327,7 @@ impl Orchestrator {
             &context.agent,
             AgentRole::Analyst,
             "解释实验结果并生成复盘。",
-            &fs::read_to_string(&context.archive.log_excerpt_path).unwrap_or_default(),
+            &context.log_excerpt,
             &context.allowed_paths,
         )?;
         ArchiveStore::write_text(&context.archive.analysis_path, &analysis.stdout)?;

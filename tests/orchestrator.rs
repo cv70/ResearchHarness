@@ -84,7 +84,7 @@ fn run_once_with_mock_agent_archives_successful_experiment() {
     let config = Config::load(dir.path()).unwrap();
     let orchestrator = Orchestrator::new(dir.path(), config);
     orchestrator.setup_run("test").unwrap();
-    let outcome = orchestrator.run_once("test", &MockAgentRunner).unwrap();
+    let outcome = orchestrator.run_once("test", MockAgentRunner).unwrap();
 
     assert_eq!(outcome.status, ExperimentStatus::Kept);
     assert!(outcome.archive_path.join("run.log").exists());
@@ -107,7 +107,7 @@ fn run_once_rejects_dirty_user_workspace_before_agents_run() {
     let config = Config::load(dir.path()).unwrap();
     let orchestrator = Orchestrator::new(dir.path(), config);
     let err = orchestrator
-        .run_once("test", &MockAgentRunner)
+        .run_once("test", MockAgentRunner)
         .expect_err("dirty workspace should be rejected");
     assert!(err.to_string().contains("uncommitted user changes"));
     assert_eq!(
@@ -149,9 +149,7 @@ fn path_policy_failure_is_archived_and_rolled_back() {
     let config = Config::load(dir.path()).unwrap();
     let orchestrator = Orchestrator::new(dir.path(), config);
     orchestrator.setup_run("test").unwrap();
-    let outcome = orchestrator
-        .run_once("test", &ReadonlyEditingAgent)
-        .unwrap();
+    let outcome = orchestrator.run_once("test", ReadonlyEditingAgent).unwrap();
 
     assert_eq!(outcome.status, ExperimentStatus::Crashed);
     assert_eq!(
@@ -178,7 +176,7 @@ fn run_once_from_different_cwd_writes_log_under_target_root() {
     let config = Config::load(dir.path()).unwrap();
     let orchestrator = Orchestrator::new(dir.path(), config);
     orchestrator.setup_run("test").unwrap();
-    let outcome = orchestrator.run_once("test", &MockAgentRunner).unwrap();
+    let outcome = orchestrator.run_once("test", MockAgentRunner).unwrap();
 
     std::env::set_current_dir(old_cwd).unwrap();
     assert_eq!(outcome.status, ExperimentStatus::Kept);
