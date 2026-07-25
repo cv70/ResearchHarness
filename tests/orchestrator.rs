@@ -51,11 +51,8 @@ readonly = [{readonly}]
 
 [experiment]
 command = "{command}"
-log_file = "run.log"
 timeout_seconds = 5
-archive_logs = true
 max_log_excerpt_lines = 20
-max_debug_attempts = 1
 
 [metric]
 name = "val_bpb"

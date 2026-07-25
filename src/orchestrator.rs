@@ -104,7 +104,7 @@ impl Orchestrator {
 
         match self.execute_experiment(&mut context) {
             Ok((status, metric)) => {
-                self.archive_results(&mut context, status, metric.clone())?;
+                self.archive_results(&mut context)?;
                 Ok(RunOnceOutcome {
                     experiment_id,
                     status,
@@ -303,7 +303,14 @@ impl Orchestrator {
                     Ok((ExperimentStatus::Discarded, Some(snapshot)))
                 }
             }
-            Err(_) => {
+            Err(err) => {
+                let _ = ArchiveStore::write_text(
+                    &context.archive.analysis_path,
+                    format!(
+                        "Metric parsing failed; experiment treated as crashed.\n\nError: {err}\n\nLog excerpt:\n{}\n",
+                        context.log_excerpt
+                    ),
+                );
                 Self::rollback_workspace(context)?;
                 context.run.consecutive_crashes += 1;
                 Ok((ExperimentStatus::Crashed, None))
@@ -317,12 +324,7 @@ impl Orchestrator {
         Ok(())
     }
 
-    fn archive_results<R: AgentRunner>(
-        &self,
-        context: &mut ExperimentContext<R>,
-        _status: ExperimentStatus,
-        _metric: Option<MetricSnapshot>,
-    ) -> Result<()> {
+    fn archive_results<R: AgentRunner>(&self, context: &mut ExperimentContext<R>) -> Result<()> {
         let analysis = self.call_agent(
             &context.agent,
             AgentRole::Analyst,

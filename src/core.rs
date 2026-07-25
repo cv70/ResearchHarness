@@ -67,7 +67,6 @@ impl Run {
 #[serde(rename_all = "kebab-case")]
 pub enum ExperimentStatus {
     Planned,
-    Edited,
     Reviewed,
     Running,
     Kept,
@@ -86,7 +85,6 @@ pub struct Experiment {
     pub hypothesis: Option<String>,
     pub metric_snapshot: Option<MetricSnapshot>,
     pub archive_path: PathBuf,
-    pub debug_attempts: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -115,30 +113,4 @@ pub struct MetricSnapshot {
     pub direction: MetricDirection,
     pub improved: bool,
     pub source_log: PathBuf,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum LearningLevel {
-    SingleObservation,
-    StableDecision,
-    PlaybookRule,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Learning {
-    pub summary: String,
-    pub evidence: String,
-    pub level: LearningLevel,
-    pub source_experiment_ids: Vec<String>,
-    pub recommended_action: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PlaybookRule {
-    pub rule: String,
-    pub when_to_apply: String,
-    pub why: String,
-    pub evidence: String,
-    pub priority: u32,
 }

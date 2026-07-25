@@ -38,8 +38,15 @@ impl AgentRunner for CliAgentRunner {
             .spawn()?;
 
         let prompt = format!("{}\n\n{}", request.system_prompt, request.task_prompt);
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(prompt.as_bytes())?;
+        if let Some(mut stdin) = child.stdin.take()
+            && stdin.write_all(prompt.as_bytes()).is_err()
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(HarnessError::Agent(format!(
+                "{} closed stdin before receiving prompt",
+                self.program
+            )));
         }
 
         let timeout = Duration::from_secs(request.timeout_seconds);
@@ -52,22 +59,30 @@ impl AgentRunner for CliAgentRunner {
             )));
         }
 
-        let output = child.wait_with_output()?;
-        let exit_status = output.status.code();
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            return Err(HarnessError::Agent(format!(
-                "{} exited with {:?}\n--- stderr ---\n{}\n--- stdout ---\n{}",
-                self.program, exit_status, stderr, stdout
-            )));
+        let output = child.wait_with_output();
+        match output {
+            Ok(output) => {
+                let exit_status = output.status.code();
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    return Err(HarnessError::Agent(format!(
+                        "{} exited with {:?}\n--- stderr ---\n{}\n--- stdout ---\n{}",
+                        self.program, exit_status, stderr, stdout
+                    )));
+                }
+                Ok(AgentResponse {
+                    stdout: String::from_utf8(output.stdout)?,
+                    stderr: String::from_utf8(output.stderr)?,
+                    exit_status,
+                    duration: started.elapsed(),
+                    artifact_paths: Vec::new(),
+                })
+            }
+            Err(e) => Err(HarnessError::Agent(format!(
+                "failed to collect {} output: {e}",
+                self.program
+            ))),
         }
-        Ok(AgentResponse {
-            stdout: String::from_utf8(output.stdout)?,
-            stderr: String::from_utf8(output.stderr)?,
-            exit_status,
-            duration: started.elapsed(),
-            artifact_paths: Vec::new(),
-        })
     }
 }

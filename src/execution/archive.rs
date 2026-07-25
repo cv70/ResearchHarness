@@ -87,7 +87,6 @@ impl ArchiveStore {
                 .parent()
                 .unwrap_or_else(|| Path::new("."))
                 .to_path_buf(),
-            debug_attempts: 0,
         };
         Self::write_text(
             &archive.manifest_path,

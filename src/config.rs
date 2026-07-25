@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{fs, fs::OpenOptions, io::Write, path::Path};
 
 use serde::{Deserialize, Serialize};
 
@@ -31,16 +31,10 @@ pub struct WorkspaceConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExperimentConfig {
     pub command: String,
-    #[serde(default = "default_log_file")]
-    pub log_file: String,
     #[serde(default = "default_timeout_seconds")]
     pub timeout_seconds: u64,
-    #[serde(default = "default_archive_logs")]
-    pub archive_logs: bool,
     #[serde(default = "default_max_log_excerpt_lines")]
     pub max_log_excerpt_lines: usize,
-    #[serde(default = "default_max_debug_attempts")]
-    pub max_debug_attempts: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -73,12 +67,18 @@ impl Config {
 
     pub fn write_default(root: impl AsRef<Path>) -> Result<()> {
         let path = root.as_ref().join("research.toml");
-        if path.exists() {
-            return Err(HarnessError::InvalidConfig(
-                "research.toml already exists".to_string(),
-            ));
-        }
-        fs::write(path, Self::default_toml())?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|err| {
+                if err.kind() == std::io::ErrorKind::AlreadyExists {
+                    HarnessError::InvalidConfig("research.toml already exists".to_string())
+                } else {
+                    HarnessError::Io(err)
+                }
+            })?;
+        file.write_all(Self::default_toml().as_bytes())?;
         Ok(())
     }
 
@@ -114,11 +114,8 @@ readonly = ["prepare.py", "research.toml"]
 
 [experiment]
 command = "uv run train.py"
-log_file = "run.log"
 timeout_seconds = 600
-archive_logs = true
 max_log_excerpt_lines = 200
-max_debug_attempts = 1
 
 [metric]
 name = "val_bpb"
@@ -129,10 +126,6 @@ direction = "lower"
 backend = "mock"
 "#
     }
-}
-
-fn default_log_file() -> String {
-    "run.log".to_string()
 }
 
 fn require_non_empty(value: &str, field: &str) -> Result<()> {
@@ -148,16 +141,8 @@ fn default_timeout_seconds() -> u64 {
     600
 }
 
-fn default_archive_logs() -> bool {
-    true
-}
-
 fn default_max_log_excerpt_lines() -> usize {
     200
-}
-
-fn default_max_debug_attempts() -> u32 {
-    1
 }
 
 fn default_agent_backend() -> String {
@@ -176,7 +161,7 @@ mod tests {
         Config::write_default(dir.path()).unwrap();
         let config = Config::load(dir.path()).unwrap();
         assert_eq!(config.project.name, "autoresearch");
-        assert_eq!(config.experiment.max_debug_attempts, 1);
+        assert_eq!(config.experiment.timeout_seconds, 600);
         assert_eq!(config.agent.backend, "mock");
     }
 

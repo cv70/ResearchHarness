@@ -15,7 +15,6 @@ pub enum AgentRole {
     Planning,
     Coding,
     Review,
-    Debug,
     Analyst,
     Memory,
 }

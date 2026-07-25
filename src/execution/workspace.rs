@@ -37,11 +37,6 @@ impl Workspace {
             .map(|s| s.trim().to_string())
     }
 
-    pub fn short_head(&self) -> Result<String> {
-        self.git(["rev-parse", "--short", "HEAD"])
-            .map(|s| s.trim().to_string())
-    }
-
     pub fn changed_files(&self) -> Result<Vec<PathBuf>> {
         let out = self.git(["status", "--porcelain"])?;
         Ok(out
@@ -60,7 +55,7 @@ impl Workspace {
     }
 
     pub fn diff(&self) -> Result<String> {
-        self.git(["diff"])
+        self.git(["diff", "HEAD"])
     }
 
     pub fn add_all(&self) -> Result<()> {
