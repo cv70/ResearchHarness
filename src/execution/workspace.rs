@@ -137,15 +137,15 @@ impl Workspace {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let args_vec: Vec<S> = args.into_iter().collect();
+        let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_string()).collect();
         let output = Command::new("git")
-            .args(args_vec.iter().map(|s| s.as_ref()))
+            .args(&args)
             .current_dir(&self.root)
             .output()?;
         if !output.status.success() {
             return Err(HarnessError::CommandFailed {
                 program: "git".to_string(),
-                args: args_vec.iter().map(|s| s.as_ref().to_string()).collect(),
+                args,
                 stderr: String::from_utf8(output.stderr)?,
             });
         }

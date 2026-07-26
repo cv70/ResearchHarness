@@ -2,10 +2,7 @@ use std::{fs, fs::OpenOptions, io::Write, path::Path};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    core::{HarnessError, MetricDirection, Result},
-    policy::PathPolicy,
-};
+use crate::core::{HarnessError, MetricDirection, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
@@ -95,11 +92,8 @@ impl Config {
         self.metric
             .compiled_regex()
             .map_err(|e| HarnessError::InvalidConfig(format!("invalid metric regex: {e}")))?;
-        let policy = PathPolicy::new(
-            self.workspace.modifiable.clone(),
-            self.workspace.readonly.clone(),
-        );
-        policy.validate()?;
+        validate_path_patterns(&self.workspace.modifiable)?;
+        validate_path_patterns(&self.workspace.readonly)?;
         Ok(())
     }
 
@@ -147,6 +141,29 @@ fn default_max_log_excerpt_lines() -> usize {
 
 fn default_agent_backend() -> String {
     "mock".to_string()
+}
+
+fn validate_path_patterns(patterns: &[String]) -> Result<()> {
+    for pattern in patterns {
+        if pattern == "*" || pattern.starts_with("*.") {
+            continue;
+        }
+        let path = Path::new(pattern);
+        if path.is_absolute() {
+            return Err(HarnessError::InvalidConfig(format!(
+                "path policy entries must be relative: {pattern}"
+            )));
+        }
+        if path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(HarnessError::InvalidConfig(format!(
+                "path policy entries cannot contain ..: {pattern}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

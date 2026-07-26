@@ -62,18 +62,22 @@ impl MemoryStore {
     }
 
     pub fn append_business(&self, text: &str) -> Result<()> {
+        self.init()?;
         self.append("business.md", text)
     }
 
     pub fn append_experiment(&self, text: &str) -> Result<()> {
+        self.init()?;
         self.append("experiments.md", text)
     }
 
     pub fn append_decision(&self, text: &str) -> Result<()> {
+        self.init()?;
         self.append("decisions.md", text)
     }
 
     pub fn append_playbook(&self, text: &str) -> Result<()> {
+        self.init()?;
         self.append("playbook.md", text)
     }
 
@@ -91,15 +95,7 @@ impl MemoryStore {
 
     fn append(&self, name: &str, text: &str) -> Result<()> {
         let path = self.root.join(name);
-        if !path.exists() {
-            if let Some(&(_, default_content)) = DEFAULT_CONTENTS.iter().find(|&&(n, _)| n == name)
-            {
-                fs::write(&path, default_content)?;
-            } else {
-                fs::write(&path, "")?;
-            }
-        }
-        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut file = OpenOptions::new().append(true).open(&path)?;
         if !text.starts_with('\n') {
             writeln!(file)?;
         }

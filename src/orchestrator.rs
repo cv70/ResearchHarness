@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use chrono::Utc;
@@ -25,7 +26,7 @@ const AGENT_SYSTEM_PROMPT: &str = "你是 ResearchHarness 自动实验系统中�
 pub struct Orchestrator {
     workspace_root: PathBuf,
     config: Config,
-    allowed_paths: Vec<PathBuf>,
+    allowed_paths: Arc<[PathBuf]>,
     path_policy: PathPolicy,
 }
 
@@ -45,7 +46,7 @@ struct ExperimentContext<R: AgentRunner> {
     experiment: crate::core::Experiment,
     archive: crate::core::ExperimentArchive,
     base_commit: String,
-    allowed_paths: Vec<PathBuf>,
+    allowed_paths: Arc<[PathBuf]>,
     agent: R,
     state_path: PathBuf,
     plan: String,
@@ -54,12 +55,12 @@ struct ExperimentContext<R: AgentRunner> {
 
 impl Orchestrator {
     pub fn new(workspace_root: impl Into<PathBuf>, config: Config) -> Self {
-        let allowed_paths = config
+        let allowed_paths: Arc<[PathBuf]> = config
             .workspace
             .modifiable
             .iter()
             .map(PathBuf::from)
-            .collect::<Vec<_>>();
+            .collect();
         let path_policy = PathPolicy::new(
             config.workspace.modifiable.clone(),
             config.workspace.readonly.clone(),
@@ -153,7 +154,7 @@ impl Orchestrator {
             experiment,
             archive,
             base_commit,
-            allowed_paths: self.allowed_paths.clone(),
+            allowed_paths: Arc::clone(&self.allowed_paths),
             agent,
             state_path,
             plan: String::new(),
@@ -351,7 +352,6 @@ impl Orchestrator {
         Self::rollback_workspace(context)?;
         context.experiment.status = ExperimentStatus::Crashed;
         context.run.consecutive_crashes += 1;
-        context.run.experiment_count += 1;
 
         ArchiveStore::write_text(
             &context.archive.analysis_path,
@@ -370,6 +370,7 @@ impl Orchestrator {
         context.memory.append_experiment(&experiment_record)?;
 
         context.experiment.status = ExperimentStatus::Archived;
+        context.run.experiment_count += 1;
         context
             .archive_store
             .write_manifest(&context.archive.manifest_path, &context.experiment)?;

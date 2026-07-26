@@ -1,5 +1,6 @@
 use std::{
     fs,
+    io::{BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
@@ -111,6 +112,56 @@ pub fn build_log_excerpt(content: &str, max_lines: usize) -> String {
     ring.into_iter().collect::<Vec<_>>().join("\n")
 }
 
+pub fn read_log_excerpt(path: impl AsRef<Path>, max_lines: usize) -> Result<String> {
+    if max_lines == 0 {
+        return Ok(String::new());
+    }
+    let file = fs::File::open(path)?;
+    let file_size = file.metadata()?.len() as usize;
+    if file_size == 0 {
+        return Ok(String::new());
+    }
+
+    let mut reader = BufReader::new(file);
+    let chunk_size = 8192;
+    let mut pos = file_size;
+    let mut buffer = String::new();
+    let mut newline_count = 0;
+
+    while pos > 0 && newline_count < max_lines {
+        let read_size = chunk_size.min(pos);
+        pos -= read_size;
+        reader.seek(SeekFrom::Start(pos as u64))?;
+        let mut chunk = String::with_capacity(read_size);
+        reader
+            .by_ref()
+            .take(read_size as u64)
+            .read_to_string(&mut chunk)?;
+        buffer.insert_str(0, &chunk);
+
+        newline_count = buffer.chars().filter(|&c| c == '\n').count();
+
+        if newline_count >= max_lines && pos > 0 {
+            if let Some(idx) = buffer
+                .char_indices()
+                .filter(|(_, c)| *c == '\n')
+                .nth(newline_count.saturating_sub(max_lines))
+                .map(|(i, _)| i + 1)
+            {
+                buffer = buffer[idx..].to_string();
+            }
+            break;
+        }
+    }
+
+    if buffer.ends_with('\n') {
+        buffer.pop();
+    }
+
+    let lines: Vec<&str> = buffer.lines().rev().take(max_lines).collect();
+    Ok(lines.into_iter().rev().collect::<Vec<_>>().join("\n"))
+}
+
 pub fn write_log_excerpt(
     content: &str,
     destination: impl AsRef<Path>,
@@ -147,5 +198,18 @@ mod tests {
         let destination = dir.path().join("excerpt.md");
         write_log_excerpt("a\nb\nc\nd\n", &destination, 2).unwrap();
         assert_eq!(fs::read_to_string(destination).unwrap(), "c\nd");
+    }
+
+    #[test]
+    fn reads_tail_excerpt_from_large_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("big.log");
+        let content: String = (0..1000)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(&path, &content).unwrap();
+        let excerpt = read_log_excerpt(&path, 5).unwrap();
+        assert_eq!(excerpt, "line 995\nline 996\nline 997\nline 998\nline 999");
     }
 }
