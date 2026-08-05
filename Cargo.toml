@@ -18,3 +18,10 @@ wait-timeout = "0.2"
 assert_cmd = "2.0"
 predicates = "3.1"
 tempfile = "3.14"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

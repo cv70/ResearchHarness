@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use crate::core::{HarnessError, MetricDirection, Result};
@@ -13,7 +14,7 @@ enum PathPattern {
     Exact(PathBuf),
     Prefix(PathBuf),
     Wildcard,
-    Extension(String),
+    Extension(Vec<u8>),
 }
 
 impl PathPattern {
@@ -22,7 +23,7 @@ impl PathPattern {
         if pattern == "*" {
             PathPattern::Wildcard
         } else if let Some(ext) = pattern.strip_prefix("*.") {
-            PathPattern::Extension(ext.to_string())
+            PathPattern::Extension(ext.as_bytes().to_ascii_lowercase())
         } else if pattern.ends_with('/') {
             PathPattern::Prefix(path)
         } else {
@@ -37,7 +38,8 @@ impl PathPattern {
             PathPattern::Prefix(pattern) => path.starts_with(pattern),
             PathPattern::Extension(ext) => path
                 .extension()
-                .is_some_and(|e| e.to_string_lossy() == *ext),
+                .map(OsStr::as_encoded_bytes)
+                .is_some_and(|e| e.eq_ignore_ascii_case(ext)),
         }
     }
 }

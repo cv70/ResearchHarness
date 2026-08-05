@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write as _,
     fs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -390,7 +391,7 @@ impl Orchestrator {
         agent.run(&AgentRequest {
             role,
             working_directory: self.workspace_root.clone(),
-            system_prompt: AGENT_SYSTEM_PROMPT.into(),
+            system_prompt: std::borrow::Cow::Borrowed(AGENT_SYSTEM_PROMPT),
             task_prompt: format!("{task}\n\n上下文：\n{context}"),
             allowed_paths: allowed_paths.to_vec(),
             context_files: Vec::new(),
@@ -403,25 +404,35 @@ fn render_experiment_record(
     experiment: &crate::core::Experiment,
     log_path: &std::path::Path,
 ) -> String {
-    let metric = experiment.metric_snapshot.as_ref().map_or_else(
-        || "unavailable".to_string(),
-        |m| format!("{}={:.6}", m.name, m.value),
+    let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S");
+    let archive_path = log_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .display();
+    let hypothesis = experiment.hypothesis.as_deref().unwrap_or("unknown");
+
+    let mut out = String::with_capacity(256);
+    let _ = write!(out, "## {timestamp} - {} - ", experiment.id);
+    match &experiment.candidate_commit {
+        Some(commit) => {
+            let short = commit.get(..7).unwrap_or(commit);
+            let _ = writeln!(out, "{short}\n\n- Status: {:?}", experiment.status);
+        }
+        None => {
+            let _ = writeln!(out, "no-commit\n\n- Status: {:?}", experiment.status);
+        }
+    }
+    match &experiment.metric_snapshot {
+        Some(m) => {
+            let _ = write!(out, "- Metric: {}={:.6}", m.name, m.value);
+        }
+        None => {
+            out.push_str("- Metric: unavailable");
+        }
+    }
+    let _ = writeln!(
+        out,
+        "\n- Hypothesis: {hypothesis}\n- Archive: `{archive_path}`\n- Follow-up: review `analysis.md` and `reflection.md`.\n"
     );
-    let commit = experiment.candidate_commit.as_deref().map_or_else(
-        || "no-commit".to_string(),
-        |s| s.get(..7).unwrap_or(s).to_string(),
-    );
-    format!(
-        "## {} - {} - {}\n\n- Status: {:?}\n- Metric: {}\n- Hypothesis: {}\n- Archive: `{}`\n- Follow-up: review `analysis.md` and `reflection.md`.\n",
-        Utc::now().format("%Y-%m-%d %H:%M:%S"),
-        experiment.id,
-        commit,
-        experiment.status,
-        metric,
-        experiment.hypothesis.as_deref().unwrap_or("unknown"),
-        log_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."))
-            .display(),
-    )
+    out
 }
