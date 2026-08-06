@@ -83,8 +83,10 @@ impl MemoryStore {
 
     fn ensure_file(&self, name: &str, content: &str) -> Result<()> {
         let path = self.root.join(name);
-        if !path.exists() {
-            fs::write(path, content)?;
+        match OpenOptions::new().create_new(true).write(true).open(&path) {
+            Ok(mut file) => file.write_all(content.as_bytes())?,
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(err) => return Err(err.into()),
         }
         Ok(())
     }

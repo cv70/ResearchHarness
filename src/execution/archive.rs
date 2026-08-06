@@ -101,15 +101,9 @@ pub fn build_log_excerpt(content: &str, max_lines: usize) -> String {
     if max_lines == 0 {
         return String::new();
     }
-    let mut ring: std::collections::VecDeque<&str> =
-        std::collections::VecDeque::with_capacity(max_lines);
-    for line in content.lines() {
-        if ring.len() == max_lines {
-            ring.pop_front();
-        }
-        ring.push_back(line);
-    }
-    ring.into_iter().collect::<Vec<_>>().join("\n")
+    let lines: Vec<&str> = content.lines().collect();
+    let start = lines.len().saturating_sub(max_lines);
+    lines[start..].join("\n")
 }
 
 pub fn read_log_excerpt(path: impl AsRef<Path>, max_lines: usize) -> Result<String> {
@@ -148,7 +142,7 @@ pub fn read_log_excerpt(path: impl AsRef<Path>, max_lines: usize) -> Result<Stri
                 .nth(newline_count.saturating_sub(max_lines))
                 .map(|(i, _)| i + 1)
             {
-                buffer = buffer[idx..].to_string();
+                buffer.drain(..idx);
             }
             break;
         }
@@ -158,8 +152,7 @@ pub fn read_log_excerpt(path: impl AsRef<Path>, max_lines: usize) -> Result<Stri
         buffer.pop();
     }
 
-    let lines: Vec<&str> = buffer.lines().rev().take(max_lines).collect();
-    Ok(lines.into_iter().rev().collect::<Vec<_>>().join("\n"))
+    Ok(buffer.lines().collect::<Vec<_>>().join("\n"))
 }
 
 pub fn write_log_excerpt(

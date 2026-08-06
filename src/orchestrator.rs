@@ -13,7 +13,7 @@ use crate::{
     core::{ExperimentStatus, HarnessError, MetricSnapshot, Result, Run},
     execution::{
         archive::{ArchiveStore, build_log_excerpt},
-        metrics::parse_metric,
+        metrics::parse_metric_with_regex,
         runner::{ExperimentCommand, run_command},
         workspace::Workspace,
     },
@@ -29,6 +29,7 @@ pub struct Orchestrator {
     config: Config,
     allowed_paths: Arc<[PathBuf]>,
     path_policy: PathPolicy,
+    metric_regex: regex::Regex,
 }
 
 #[derive(Debug, Clone)]
@@ -55,22 +56,20 @@ struct ExperimentContext<R: AgentRunner> {
 }
 
 impl Orchestrator {
-    pub fn new(workspace_root: impl Into<PathBuf>, config: Config) -> Self {
-        let allowed_paths: Arc<[PathBuf]> = config
-            .workspace
-            .modifiable
-            .iter()
-            .map(PathBuf::from)
-            .collect();
-        let path_policy = PathPolicy::new(
-            config.workspace.modifiable.clone(),
-            config.workspace.readonly.clone(),
-        );
+    pub fn new(workspace_root: impl Into<PathBuf>, mut config: Config) -> Self {
+        let modifiable = std::mem::take(&mut config.workspace.modifiable);
+        let allowed_paths: Arc<[PathBuf]> = modifiable.iter().map(PathBuf::from).collect();
+        let path_policy = PathPolicy::new(modifiable, config.workspace.readonly.clone());
+        let metric_regex = config
+            .metric
+            .compiled_regex()
+            .expect("regex validated in Config::validate");
         Self {
             workspace_root: workspace_root.into(),
             config,
             allowed_paths,
             path_policy,
+            metric_regex,
         }
     }
 
@@ -284,7 +283,8 @@ impl Orchestrator {
             return Ok((ExperimentStatus::Crashed, None));
         }
 
-        match parse_metric(
+        match parse_metric_with_regex(
+            &self.metric_regex,
             &self.config.metric,
             &log_content,
             &context.archive.run_log_path,
