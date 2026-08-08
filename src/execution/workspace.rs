@@ -47,10 +47,12 @@ impl Workspace {
     }
 
     pub fn user_changed_files(&self) -> Result<Vec<PathBuf>> {
-        Ok(self
-            .changed_files()?
-            .into_iter()
+        let out = self.git(["status", "--porcelain"])?;
+        Ok(out
+            .lines()
+            .filter_map(|line| line.get(3..))
             .filter(|path| !path.starts_with(".research-harness"))
+            .map(PathBuf::from)
             .collect())
     }
 
@@ -68,21 +70,23 @@ impl Workspace {
         I: IntoIterator<Item = P>,
         P: AsRef<Path>,
     {
+        let mut iter = paths.into_iter().peekable();
+        if iter.peek().is_none() {
+            return Ok(());
+        }
         let mut cmd = Command::new("git");
         cmd.arg("add").arg("--").current_dir(&self.root);
-        let mut count = 0;
-        for path in paths {
-            cmd.arg(path.as_ref());
-            count += 1;
-        }
-        if count == 0 {
-            return Ok(());
+        let mut args: Vec<String> = vec!["add".to_string(), "--".to_string()];
+        for path in iter {
+            let p = path.as_ref();
+            cmd.arg(p);
+            args.push(p.display().to_string());
         }
         let output = cmd.output()?;
         if !output.status.success() {
             return Err(HarnessError::CommandFailed {
                 program: "git".to_string(),
-                args: vec!["add".to_string(), "--".to_string()],
+                args,
                 stderr: String::from_utf8(output.stderr)?,
             });
         }

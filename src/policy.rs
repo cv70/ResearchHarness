@@ -59,34 +59,6 @@ impl PathPolicy {
         }
     }
 
-    pub fn validate(&self) -> Result<()> {
-        if self.modifiable.is_empty() {
-            return Err(HarnessError::InvalidConfig(
-                "at least one modifiable path is required".to_string(),
-            ));
-        }
-        for pattern in self.modifiable.iter().chain(self.readonly.iter()) {
-            if let PathPattern::Exact(path) | PathPattern::Prefix(path) = pattern {
-                if path.is_absolute() {
-                    return Err(HarnessError::InvalidConfig(format!(
-                        "path policy entries must be relative: {}",
-                        path.display()
-                    )));
-                }
-                if path
-                    .components()
-                    .any(|c| matches!(c, std::path::Component::ParentDir))
-                {
-                    return Err(HarnessError::InvalidConfig(format!(
-                        "path policy entries cannot contain ..: {}",
-                        path.display()
-                    )));
-                }
-            }
-        }
-        Ok(())
-    }
-
     pub fn check_changed_paths<I, P>(&self, paths: I) -> Result<()>
     where
         I: IntoIterator<Item = P>,
