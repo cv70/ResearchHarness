@@ -81,11 +81,10 @@ impl Orchestrator {
     }
 
     pub fn setup_run(&self, tag: &str) -> Result<Run> {
-        let (workspace, memory, archive) = self.ensure_environment(tag)?;
+        let (workspace, _memory, archive) = self.ensure_environment(tag)?;
         let branch = workspace.current_branch()?;
         let run = Run::new(tag, branch);
         fs::write(archive.state_path(), toml::to_string_pretty(&run)?)?;
-        memory.init()?;
         Ok(run)
     }
 
@@ -434,7 +433,7 @@ fn render_experiment_record(
             let _ = write!(out, "- Metric: {}={:.6}", m.name, m.value);
         }
         None => {
-            out.push_str("- Metric: unavailable");
+            let _ = out.write_str("- Metric: unavailable");
         }
     }
     let _ = writeln!(

@@ -136,20 +136,15 @@ impl Workspace {
         }))
     }
 
-    fn git<I, S>(&self, args: I) -> Result<String>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_string()).collect();
+    fn git<const N: usize>(&self, args: [&str; N]) -> Result<String> {
         let output = Command::new("git")
-            .args(&args)
+            .args(args)
             .current_dir(&self.root)
             .output()?;
         if !output.status.success() {
             return Err(HarnessError::CommandFailed {
                 program: "git".to_string(),
-                args,
+                args: args.iter().map(|s| s.to_string()).collect(),
                 stderr: String::from_utf8(output.stderr)?,
             });
         }
