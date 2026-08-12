@@ -37,16 +37,21 @@ impl AgentRunner for CliAgentRunner {
             .stderr(Stdio::piped())
             .spawn()?;
 
-        let prompt = format!("{}\n\n{}", request.system_prompt, request.task_prompt);
-        if let Some(mut stdin) = child.stdin.take()
-            && stdin.write_all(prompt.as_bytes()).is_err()
-        {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(HarnessError::Agent(format!(
-                "{} closed stdin before receiving prompt",
-                self.program
-            )));
+        if let Some(mut stdin) = child.stdin.take() {
+            let write_result = (|| {
+                stdin.write_all(request.system_prompt.as_bytes())?;
+                stdin.write_all(b"\n\n")?;
+                stdin.write_all(request.task_prompt.as_bytes())?;
+                stdin.flush()
+            })();
+            if write_result.is_err() {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(HarnessError::Agent(format!(
+                    "{} closed stdin before receiving prompt",
+                    self.program
+                )));
+            }
         }
 
         let timeout = Duration::from_secs(request.timeout_seconds);

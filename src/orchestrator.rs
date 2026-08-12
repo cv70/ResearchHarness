@@ -48,7 +48,6 @@ struct ExperimentContext<R: AgentRunner> {
     experiment: crate::core::Experiment,
     archive: crate::core::ExperimentArchive,
     base_commit: String,
-    allowed_paths: Arc<[PathBuf]>,
     agent: R,
     state_path: PathBuf,
     plan: String,
@@ -153,7 +152,6 @@ impl Orchestrator {
             experiment,
             archive,
             base_commit,
-            allowed_paths: Arc::clone(&self.allowed_paths),
             agent,
             state_path,
             plan: String::new(),
@@ -191,14 +189,14 @@ impl Orchestrator {
             AgentRole::Coordinator,
             "生成本轮调度建议。",
             &snapshot.playbook,
-            &context.allowed_paths,
+            &self.allowed_paths,
         )?;
         let research = self.call_agent(
             &context.agent,
             AgentRole::Research,
             "提出一个可归因的实验假设。",
             &snapshot.experiments,
-            &context.allowed_paths,
+            &self.allowed_paths,
         )?;
         context.experiment.hypothesis = Some(research.stdout.trim().to_string());
         let plan = self.call_agent(
@@ -206,7 +204,7 @@ impl Orchestrator {
             AgentRole::Planning,
             "将实验假设转成执行计划。",
             &research.stdout,
-            &context.allowed_paths,
+            &self.allowed_paths,
         )?;
         ArchiveStore::write_text(&context.archive.plan_path, &plan.stdout)?;
         context.plan = plan.stdout;
@@ -222,7 +220,7 @@ impl Orchestrator {
             AgentRole::Coding,
             "按 plan.md 修改允许范围内的代码。",
             &context.plan,
-            &context.allowed_paths,
+            &self.allowed_paths,
         )?;
         let diff = context.workspace.diff()?;
         ArchiveStore::write_text(&context.archive.diff_path, &diff)?;
@@ -234,7 +232,7 @@ impl Orchestrator {
             AgentRole::Review,
             "审查 diff 是否符合计划。",
             &diff,
-            &context.allowed_paths,
+            &self.allowed_paths,
         )?;
 
         context.experiment.status = ExperimentStatus::Reviewed;
@@ -338,7 +336,7 @@ impl Orchestrator {
             AgentRole::Analyst,
             "解释实验结果并生成复盘。",
             &context.log_excerpt,
-            &context.allowed_paths,
+            &self.allowed_paths,
         )?;
         ArchiveStore::write_text(&context.archive.analysis_path, &analysis.stdout)?;
         let reflection = self.call_agent(
@@ -346,7 +344,7 @@ impl Orchestrator {
             AgentRole::Memory,
             "将复盘转成记忆候选。",
             &analysis.stdout,
-            &context.allowed_paths,
+            &self.allowed_paths,
         )?;
         ArchiveStore::write_text(&context.archive.reflection_path, &reflection.stdout)?;
         Self::finalize_experiment(context)
@@ -392,14 +390,14 @@ impl Orchestrator {
         role: AgentRole,
         task: &str,
         context: &str,
-        allowed_paths: &[PathBuf],
+        allowed_paths: &Arc<[PathBuf]>,
     ) -> Result<crate::agents::AgentResponse> {
         agent.run(&AgentRequest {
             role,
             working_directory: self.workspace_root.clone(),
             system_prompt: std::borrow::Cow::Borrowed(AGENT_SYSTEM_PROMPT),
             task_prompt: format!("{task}\n\n上下文：\n{context}"),
-            allowed_paths: allowed_paths.to_vec(),
+            allowed_paths: Arc::clone(allowed_paths),
             context_files: Vec::new(),
             timeout_seconds: 120,
         })

@@ -6,16 +6,6 @@ use crate::{
     policy::is_improved,
 };
 
-pub fn parse_metric(
-    config: &MetricConfig,
-    log_content: &str,
-    source_log: impl AsRef<Path>,
-    previous_best: Option<f64>,
-) -> Result<MetricSnapshot> {
-    let regex = config.compiled_regex()?;
-    parse_metric_with_regex(&regex, config, log_content, source_log, previous_best)
-}
-
 pub fn parse_metric_with_regex(
     regex: &regex::Regex,
     config: &MetricConfig,
@@ -47,6 +37,16 @@ mod tests {
 
     use super::*;
     use crate::core::MetricDirection;
+
+    fn parse_metric(
+        config: &MetricConfig,
+        log_content: &str,
+        source_log: impl AsRef<Path>,
+        previous_best: Option<f64>,
+    ) -> Result<MetricSnapshot> {
+        let regex = config.compiled_regex()?;
+        parse_metric_with_regex(&regex, config, log_content, source_log, previous_best)
+    }
 
     #[test]
     fn parses_metric_and_compares_lower() {
