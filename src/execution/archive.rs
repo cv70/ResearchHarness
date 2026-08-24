@@ -60,7 +60,10 @@ impl ArchiveStore {
     }
 
     pub fn write_text(path: impl AsRef<Path>, content: impl AsRef<str>) -> Result<()> {
-        if let Some(parent) = path.as_ref().parent() {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
             fs::create_dir_all(parent)?;
         }
         fs::write(path, content.as_ref())?;

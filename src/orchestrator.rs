@@ -12,7 +12,7 @@ use crate::{
     config::Config,
     core::{ExperimentStatus, HarnessError, MetricSnapshot, Result, Run},
     execution::{
-        archive::{ArchiveStore, build_log_excerpt},
+        archive::{ArchiveStore, read_log_excerpt},
         metrics::parse_metric_with_regex,
         runner::{ExperimentCommand, run_command},
         workspace::Workspace,
@@ -90,10 +90,13 @@ impl Orchestrator {
     pub fn status(workspace_root: impl AsRef<Path>, tag: &str) -> Result<String> {
         let archive = ArchiveStore::new(workspace_root, tag);
         let state_path = archive.state_path();
-        if !state_path.exists() {
-            return Ok(format!("run `{tag}` has not been set up"));
+        match fs::read_to_string(&state_path) {
+            Ok(content) => Ok(content),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                Ok(format!("run `{tag}` has not been set up"))
+            }
+            Err(err) => Err(err.into()),
         }
-        Ok(fs::read_to_string(state_path)?)
     }
 
     pub fn run_once<R: AgentRunner>(&self, tag: &str, agent: R) -> Result<RunOnceOutcome> {
@@ -133,10 +136,12 @@ impl Orchestrator {
         }
 
         let state_path = archive_store.state_path();
-        let run = if state_path.exists() {
-            toml::from_str::<Run>(&fs::read_to_string(&state_path)?)?
-        } else {
-            Run::new(tag, workspace.current_branch()?)
+        let run = match fs::read_to_string(&state_path) {
+            Ok(content) => toml::from_str::<Run>(&content)?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                Run::new(tag, workspace.current_branch()?)
+            }
+            Err(err) => return Err(err.into()),
         };
 
         let base_commit = workspace.head_commit()?;
@@ -268,9 +273,10 @@ impl Orchestrator {
             .write_manifest(&context.archive.manifest_path, &context.experiment)?;
 
         let command_result = run_command(&self.workspace_root, &command)?;
-        let log_content = fs::read_to_string(&context.archive.run_log_path).unwrap_or_default();
-        context.log_excerpt =
-            build_log_excerpt(&log_content, self.config.experiment.max_log_excerpt_lines);
+        let max_lines = self.config.experiment.max_log_excerpt_lines;
+        let log_excerpt =
+            read_log_excerpt(&context.archive.run_log_path, max_lines).unwrap_or_default();
+        context.log_excerpt = log_excerpt;
         let _ = ArchiveStore::write_text(&context.archive.log_excerpt_path, &context.log_excerpt);
 
         let previous_best = context.run.best_metric.as_ref().map(|metric| metric.value);
@@ -280,6 +286,7 @@ impl Orchestrator {
             return Ok((ExperimentStatus::Crashed, None));
         }
 
+        let log_content = fs::read_to_string(&context.archive.run_log_path).unwrap_or_default();
         match parse_metric_with_regex(
             &self.metric_regex,
             &self.config.metric,
@@ -392,11 +399,13 @@ impl Orchestrator {
         context: &str,
         allowed_paths: &Arc<[PathBuf]>,
     ) -> Result<crate::agents::AgentResponse> {
+        let mut task_prompt = String::with_capacity(task.len() + context.len() + 16);
+        let _ = write!(task_prompt, "{task}\n\n上下文：\n{context}");
         agent.run(&AgentRequest {
             role,
             working_directory: self.workspace_root.clone(),
             system_prompt: std::borrow::Cow::Borrowed(AGENT_SYSTEM_PROMPT),
-            task_prompt: format!("{task}\n\n上下文：\n{context}"),
+            task_prompt,
             allowed_paths: Arc::clone(allowed_paths),
             context_files: Vec::new(),
             timeout_seconds: 120,

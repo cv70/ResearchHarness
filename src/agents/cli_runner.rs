@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write as _,
     io::Write,
     process::{Command, Stdio},
     time::{Duration, Instant},
@@ -47,10 +48,9 @@ impl AgentRunner for CliAgentRunner {
             if write_result.is_err() {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(HarnessError::Agent(format!(
-                    "{} closed stdin before receiving prompt",
-                    self.program
-                )));
+                let mut msg = String::with_capacity(self.program.len() + 40);
+                let _ = write!(msg, "{} closed stdin before receiving prompt", self.program);
+                return Err(HarnessError::Agent(msg));
             }
         }
 
@@ -58,10 +58,13 @@ impl AgentRunner for CliAgentRunner {
         if child.wait_timeout(timeout)?.is_none() {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(HarnessError::Agent(format!(
+            let mut msg = String::with_capacity(self.program.len() + 30);
+            let _ = write!(
+                msg,
                 "{} timed out after {}s",
                 self.program, request.timeout_seconds
-            )));
+            );
+            return Err(HarnessError::Agent(msg));
         }
 
         let output = child.wait_with_output();
@@ -71,10 +74,15 @@ impl AgentRunner for CliAgentRunner {
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     let stdout = String::from_utf8_lossy(&output.stdout);
-                    return Err(HarnessError::Agent(format!(
+                    let mut msg = String::with_capacity(
+                        self.program.len() + stderr.len() + stdout.len() + 64,
+                    );
+                    let _ = write!(
+                        msg,
                         "{} exited with {:?}\n--- stderr ---\n{}\n--- stdout ---\n{}",
                         self.program, exit_status, stderr, stdout
-                    )));
+                    );
+                    return Err(HarnessError::Agent(msg));
                 }
                 Ok(AgentResponse {
                     stdout: String::from_utf8(output.stdout)?,
@@ -84,10 +92,11 @@ impl AgentRunner for CliAgentRunner {
                     artifact_paths: Vec::new(),
                 })
             }
-            Err(e) => Err(HarnessError::Agent(format!(
-                "failed to collect {} output: {e}",
-                self.program
-            ))),
+            Err(e) => {
+                let mut msg = String::with_capacity(self.program.len() + 40);
+                let _ = write!(msg, "failed to collect {} output: {e}", self.program);
+                Err(HarnessError::Agent(msg))
+            }
         }
     }
 }
