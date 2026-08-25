@@ -136,15 +136,18 @@ pub fn read_log_excerpt(path: impl AsRef<Path>, max_lines: usize) -> Result<Stri
             .read_to_string(&mut chunk)?;
         buffer.insert_str(0, &chunk);
 
-        newline_count = buffer.chars().filter(|&c| c == '\n').count();
+        newline_count = buffer.bytes().filter(|&b| b == b'\n').count();
 
         if newline_count >= max_lines && pos > 0 {
-            if let Some(idx) = buffer
-                .char_indices()
-                .filter(|(_, c)| *c == '\n')
-                .nth(newline_count.saturating_sub(max_lines))
-                .map(|(i, _)| i + 1)
-            {
+            let offset = newline_count.saturating_sub(max_lines);
+            let idx = buffer
+                .as_bytes()
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| **b == b'\n')
+                .nth(offset)
+                .map(|(i, _)| i + 1);
+            if let Some(idx) = idx {
                 buffer.drain(..idx);
             }
             break;

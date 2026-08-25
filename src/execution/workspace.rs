@@ -11,10 +11,8 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn new(root: impl AsRef<Path>) -> Self {
-        Self {
-            root: root.as_ref().to_path_buf(),
-        }
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
     }
 
     #[must_use]
@@ -95,8 +93,8 @@ impl Workspace {
 
     pub fn commit(&self, message: &str) -> Result<String> {
         self.add_all()?;
-        self.git(["commit", "-m", message])?;
-        self.head_commit()
+        let out = self.git(["commit", "-m", message])?;
+        extract_commit_sha(&out)
     }
 
     pub fn commit_paths<I, P>(&self, paths: I, message: &str) -> Result<String>
@@ -105,8 +103,8 @@ impl Workspace {
         P: AsRef<Path>,
     {
         self.add_paths(paths)?;
-        self.git(["commit", "-m", message])?;
-        self.head_commit()
+        let out = self.git(["commit", "-m", message])?;
+        extract_commit_sha(&out)
     }
 
     pub fn reset_hard(&self, commit: &str) -> Result<()> {
@@ -149,5 +147,30 @@ impl Workspace {
             });
         }
         String::from_utf8(output.stdout).map_err(Into::into)
+    }
+}
+
+fn extract_commit_sha(commit_output: &str) -> Result<String> {
+    // `git commit` stdout starts with something like:
+    //   "[branch abc1234] commit message"
+    // or on detached HEAD: "[detached HEAD abc1234] ..."
+    let line = commit_output.lines().next().unwrap_or("");
+    let bracketed = line
+        .strip_prefix('[')
+        .and_then(|l| l.split_once(']'))
+        .map(|(inner, _)| inner)
+        .unwrap_or(line);
+    let sha = bracketed
+        .rsplit_once(' ')
+        .map(|(_, s)| s)
+        .unwrap_or(bracketed);
+    if sha.is_empty() {
+        Err(HarnessError::CommandFailed {
+            program: "git".to_string(),
+            args: vec!["rev-parse".to_string(), "HEAD".to_string()],
+            stderr: "commit produced no sha in output".to_string(),
+        })
+    } else {
+        Ok(sha.to_string())
     }
 }

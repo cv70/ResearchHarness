@@ -317,13 +317,15 @@ impl Orchestrator {
                 }
             }
             Err(err) => {
-                let _ = ArchiveStore::write_text(
-                    &context.archive.analysis_path,
-                    format!(
-                        "Metric parsing failed; experiment treated as crashed.\n\nError: {err}\n\nLog excerpt:\n{}\n",
-                        context.log_excerpt
-                    ),
-                );
+                let mut analysis =
+                    String::with_capacity(80 + err.to_string().len() + context.log_excerpt.len());
+                write!(
+                    analysis,
+                    "Metric parsing failed; experiment treated as crashed.\n\nError: {err}\n\nLog excerpt:\n{}\n",
+                    context.log_excerpt
+                )
+                .unwrap();
+                let _ = ArchiveStore::write_text(&context.archive.analysis_path, analysis);
                 Self::rollback_workspace(context)?;
                 context.run.consecutive_crashes += 1;
                 Ok((ExperimentStatus::Crashed, None))
@@ -365,10 +367,16 @@ impl Orchestrator {
         context.experiment.status = ExperimentStatus::Crashed;
         context.run.consecutive_crashes += 1;
 
-        ArchiveStore::write_text(
-            &context.archive.analysis_path,
-            format!("Experiment crashed before command execution.\n\nError: {err}\n"),
-        )?;
+        let mut analysis = String::with_capacity(
+            40 + "Experiment crashed before command execution.\n\nError: \n".len()
+                + err.to_string().len(),
+        );
+        write!(
+            analysis,
+            "Experiment crashed before command execution.\n\nError: {err}\n"
+        )
+        .unwrap();
+        ArchiveStore::write_text(&context.archive.analysis_path, analysis)?;
         ArchiveStore::write_text(
             &context.archive.reflection_path,
             "Failure archived. Review the error and diff before retrying.\n",
@@ -423,29 +431,27 @@ fn render_experiment_record(
         .unwrap_or_else(|| std::path::Path::new("."))
         .display();
     let hypothesis = experiment.hypothesis.as_deref().unwrap_or("unknown");
+    let commit_short = experiment
+        .candidate_commit
+        .as_deref()
+        .map(|c| c.get(..7).unwrap_or(c));
 
     let mut out = String::with_capacity(256);
-    let _ = write!(out, "## {timestamp} - {} - ", experiment.id);
-    match &experiment.candidate_commit {
-        Some(commit) => {
-            let short = commit.get(..7).unwrap_or(commit);
-            let _ = writeln!(out, "{short}\n\n- Status: {:?}", experiment.status);
-        }
-        None => {
-            let _ = writeln!(out, "no-commit\n\n- Status: {:?}", experiment.status);
-        }
+    write!(out, "## {timestamp} - {} - ", experiment.id).unwrap();
+    match commit_short {
+        Some(short) => writeln!(out, "{short}\n\n- Status: {:?}", experiment.status),
+        None => writeln!(out, "no-commit\n\n- Status: {:?}", experiment.status),
     }
+    .unwrap();
     match &experiment.metric_snapshot {
-        Some(m) => {
-            let _ = write!(out, "- Metric: {}={:.6}", m.name, m.value);
-        }
-        None => {
-            let _ = out.write_str("- Metric: unavailable");
-        }
+        Some(m) => write!(out, "- Metric: {}={:.6}", m.name, m.value),
+        None => out.write_str("- Metric: unavailable"),
     }
-    let _ = writeln!(
+    .unwrap();
+    writeln!(
         out,
         "\n- Hypothesis: {hypothesis}\n- Archive: `{archive_path}`\n- Follow-up: review `analysis.md` and `reflection.md`.\n"
-    );
+    )
+    .unwrap();
     out
 }
