@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write as _,
     fs,
     io::{BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
@@ -92,10 +93,9 @@ impl ArchiveStore {
                 .unwrap_or_else(|| Path::new("."))
                 .to_path_buf(),
         };
-        Self::write_text(
-            &archive.manifest_path,
-            format!("# created {}\n", Utc::now().to_rfc3339()),
-        )?;
+        let mut created = String::with_capacity(32);
+        writeln!(created, "# created {}", Utc::now().to_rfc3339()).unwrap();
+        Self::write_text(&archive.manifest_path, created)?;
         Ok((experiment, archive))
     }
 }
@@ -161,16 +161,6 @@ pub fn read_log_excerpt(path: impl AsRef<Path>, max_lines: usize) -> Result<Stri
     Ok(buffer.lines().collect::<Vec<_>>().join("\n"))
 }
 
-pub fn write_log_excerpt(
-    content: &str,
-    destination: impl AsRef<Path>,
-    max_lines: usize,
-) -> Result<()> {
-    let excerpt = build_log_excerpt(content, max_lines);
-    ArchiveStore::write_text(destination, excerpt)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -195,7 +185,8 @@ mod tests {
     fn writes_tail_excerpt() {
         let dir = tempdir().unwrap();
         let destination = dir.path().join("excerpt.md");
-        write_log_excerpt("a\nb\nc\nd\n", &destination, 2).unwrap();
+        let excerpt = build_log_excerpt("a\nb\nc\nd\n", 2);
+        ArchiveStore::write_text(&destination, excerpt).unwrap();
         assert_eq!(fs::read_to_string(destination).unwrap(), "c\nd");
     }
 

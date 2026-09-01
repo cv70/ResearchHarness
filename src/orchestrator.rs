@@ -93,7 +93,9 @@ impl Orchestrator {
         match fs::read_to_string(&state_path) {
             Ok(content) => Ok(content),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                Ok(format!("run `{tag}` has not been set up"))
+                let mut msg = String::with_capacity(tag.len() + 32);
+                write!(msg, "run `{tag}` has not been set up").unwrap();
+                Ok(msg)
             }
             Err(err) => Err(err.into()),
         }
@@ -248,10 +250,9 @@ impl Orchestrator {
         let candidate_commit = if changed_files.is_empty() {
             None
         } else {
-            let commit = context.workspace.commit_paths(
-                &changed_files,
-                &format!("experiment {}", context.experiment.id),
-            )?;
+            let mut message = String::with_capacity(20 + context.experiment.id.len());
+            write!(message, "experiment {}", context.experiment.id).unwrap();
+            let commit = context.workspace.commit_paths(&changed_files, &message)?;
             Some(commit)
         };
         context.experiment.candidate_commit = candidate_commit;
