@@ -299,15 +299,12 @@ impl Orchestrator {
                 let improved = snapshot.improved;
                 context.experiment.metric_snapshot = Some(snapshot);
                 if improved {
-                    let stored = context.experiment.metric_snapshot.as_ref().unwrap();
-                    context.run.best_metric = Some(stored.clone());
+                    let snapshot = context.experiment.metric_snapshot.clone().unwrap();
+                    context.run.best_metric = Some(snapshot.clone());
                     context.run.best_commit = context.experiment.candidate_commit.clone();
                     context.run.consecutive_crashes = 0;
                     context.run.consecutive_regressions = 0;
-                    Ok((
-                        ExperimentStatus::Kept,
-                        Some(context.experiment.metric_snapshot.clone().unwrap()),
-                    ))
+                    Ok((ExperimentStatus::Kept, Some(snapshot)))
                 } else {
                     Self::rollback_workspace(context)?;
                     context.run.consecutive_regressions += 1;
@@ -409,7 +406,7 @@ impl Orchestrator {
         allowed_paths: &Arc<[PathBuf]>,
     ) -> Result<crate::agents::AgentResponse> {
         let mut task_prompt = String::with_capacity(task.len() + context.len() + 16);
-        let _ = write!(task_prompt, "{task}\n\n上下文：\n{context}");
+        write!(task_prompt, "{task}\n\n上下文：\n{context}").unwrap();
         agent.run(&AgentRequest {
             role,
             working_directory: self.workspace_root.clone(),

@@ -96,6 +96,9 @@ impl MemoryStore {
     }
 
     fn append(&self, name: &str, text: &str) -> Result<()> {
+        if text.is_empty() {
+            return Ok(());
+        }
         let path = self.root.join(name);
         let mut file = OpenOptions::new().append(true).open(&path)?;
         if !text.starts_with('\n') {

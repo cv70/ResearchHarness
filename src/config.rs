@@ -1,4 +1,4 @@
-use std::{fs, fs::OpenOptions, io::Write, path::Path};
+use std::{fmt::Write as _, fs, fs::OpenOptions, io::Write, path::Path};
 
 use serde::{Deserialize, Serialize};
 
@@ -124,9 +124,9 @@ backend = "mock"
 
 fn require_non_empty(value: &str, field: &str) -> Result<()> {
     if value.trim().is_empty() {
-        return Err(HarnessError::InvalidConfig(format!(
-            "{field} cannot be empty"
-        )));
+        let mut msg = String::with_capacity(field.len() + 16);
+        write!(msg, "{field} cannot be empty").unwrap();
+        return Err(HarnessError::InvalidConfig(msg));
     }
     Ok(())
 }
@@ -150,17 +150,17 @@ fn validate_path_patterns(patterns: &[String]) -> Result<()> {
         }
         let path = Path::new(pattern);
         if path.is_absolute() {
-            return Err(HarnessError::InvalidConfig(format!(
-                "path policy entries must be relative: {pattern}"
-            )));
+            let mut msg = String::with_capacity(32 + pattern.len());
+            write!(msg, "path policy entries must be relative: {pattern}").unwrap();
+            return Err(HarnessError::InvalidConfig(msg));
         }
         if path
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
         {
-            return Err(HarnessError::InvalidConfig(format!(
-                "path policy entries cannot contain ..: {pattern}"
-            )));
+            let mut msg = String::with_capacity(36 + pattern.len());
+            write!(msg, "path policy entries cannot contain ..: {pattern}").unwrap();
+            return Err(HarnessError::InvalidConfig(msg));
         }
     }
     Ok(())
