@@ -71,16 +71,17 @@ impl Workspace {
         }
         let mut cmd = Command::new("git");
         cmd.arg("add").arg("--").current_dir(&self.root);
-        let mut args: Vec<String> = vec!["add".to_string(), "--".to_string()];
         for path in iter {
-            let p = path.as_ref();
-            cmd.arg(p);
-            args.push(p.display().to_string());
+            cmd.arg(path.as_ref());
         }
         let output = cmd.output()?;
         if !output.status.success() {
+            let args = cmd
+                .get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
             return Err(HarnessError::CommandFailed {
-                program: "git".to_string(),
+                program: cmd.get_program().to_string_lossy().into_owned(),
                 args,
                 stderr: String::from_utf8(output.stderr)?,
             });

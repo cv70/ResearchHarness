@@ -89,9 +89,11 @@ impl Config {
         require_non_empty(&self.experiment.command, "experiment.command")?;
         require_non_empty(&self.metric.name, "metric.name")?;
         require_non_empty(&self.metric.regex, "metric.regex")?;
-        self.metric
-            .compiled_regex()
-            .map_err(|e| HarnessError::InvalidConfig(format!("invalid metric regex: {e}")))?;
+        self.metric.compiled_regex().map_err(|e| {
+            let mut msg = String::with_capacity(22 + e.to_string().len());
+            write!(msg, "invalid metric regex: {e}").unwrap();
+            HarnessError::InvalidConfig(msg)
+        })?;
         validate_path_patterns(&self.workspace.modifiable)?;
         validate_path_patterns(&self.workspace.readonly)?;
         Ok(())

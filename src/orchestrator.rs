@@ -12,7 +12,7 @@ use crate::{
     config::Config,
     core::{ExperimentStatus, HarnessError, MetricSnapshot, Result, Run},
     execution::{
-        archive::{ArchiveStore, read_log_excerpt},
+        archive::{ArchiveStore, build_log_excerpt},
         metrics::parse_metric_with_regex,
         runner::{ExperimentCommand, run_command},
         workspace::Workspace,
@@ -275,10 +275,10 @@ impl Orchestrator {
 
         let command_result = run_command(&self.workspace_root, &command)?;
         let max_lines = self.config.experiment.max_log_excerpt_lines;
-        let log_excerpt =
-            read_log_excerpt(&context.archive.run_log_path, max_lines).unwrap_or_default();
+        let log_content = fs::read_to_string(&context.archive.run_log_path).unwrap_or_default();
+        let log_excerpt = build_log_excerpt(&log_content, max_lines);
         context.log_excerpt = log_excerpt;
-        let _ = ArchiveStore::write_text(&context.archive.log_excerpt_path, &context.log_excerpt);
+        ArchiveStore::write_text(&context.archive.log_excerpt_path, &context.log_excerpt)?;
 
         let previous_best = context.run.best_metric.as_ref().map(|metric| metric.value);
         if command_result.ensure_success().is_err() {
@@ -287,7 +287,6 @@ impl Orchestrator {
             return Ok((ExperimentStatus::Crashed, None));
         }
 
-        let log_content = fs::read_to_string(&context.archive.run_log_path).unwrap_or_default();
         match parse_metric_with_regex(
             &self.metric_regex,
             &self.config.metric,
@@ -323,7 +322,7 @@ impl Orchestrator {
                     context.log_excerpt
                 )
                 .unwrap();
-                let _ = ArchiveStore::write_text(&context.archive.analysis_path, analysis);
+                ArchiveStore::write_text(&context.archive.analysis_path, analysis)?;
                 Self::rollback_workspace(context)?;
                 context.run.consecutive_crashes += 1;
                 Ok((ExperimentStatus::Crashed, None))

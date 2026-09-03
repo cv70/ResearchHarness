@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write as _,
     fs::File,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -81,16 +82,22 @@ pub fn run_command(
 impl CommandResult {
     pub fn ensure_success(&self) -> Result<()> {
         if self.timed_out {
-            return Err(HarnessError::Experiment(format!(
+            let mut msg = String::with_capacity(32);
+            write!(
+                msg,
                 "command timed out after {:.1}s",
                 self.duration.as_secs_f64()
-            )));
+            )
+            .unwrap();
+            return Err(HarnessError::Experiment(msg));
         }
         match self.exit_code {
             Some(0) => Ok(()),
-            other => Err(HarnessError::Experiment(format!(
-                "command exited with {other:?}"
-            ))),
+            other => {
+                let mut msg = String::with_capacity(32);
+                write!(msg, "command exited with {other:?}").unwrap();
+                Err(HarnessError::Experiment(msg))
+            }
         }
     }
 }
