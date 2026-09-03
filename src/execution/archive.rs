@@ -122,7 +122,7 @@ pub fn read_log_excerpt(path: impl AsRef<Path>, max_lines: usize) -> Result<Stri
     let mut reader = BufReader::new(file);
     let chunk_size = 8192;
     let mut pos = file_size;
-    let mut buffer = String::new();
+    let mut buffer = String::with_capacity(chunk_size.min(file_size) * 2);
     let mut newline_count = 0;
 
     while pos > 0 && newline_count < max_lines {
@@ -134,9 +134,9 @@ pub fn read_log_excerpt(path: impl AsRef<Path>, max_lines: usize) -> Result<Stri
             .by_ref()
             .take(read_size as u64)
             .read_to_string(&mut chunk)?;
+        // Incremental newline count over the newly-read chunk only (O(n) total).
+        newline_count += chunk.bytes().filter(|&b| b == b'\n').count();
         buffer.insert_str(0, &chunk);
-
-        newline_count = buffer.bytes().filter(|&b| b == b'\n').count();
 
         if newline_count >= max_lines && pos > 0 {
             let offset = newline_count.saturating_sub(max_lines);
@@ -158,7 +158,14 @@ pub fn read_log_excerpt(path: impl AsRef<Path>, max_lines: usize) -> Result<Stri
         buffer.pop();
     }
 
-    Ok(buffer.lines().collect::<Vec<_>>().join("\n"))
+    // Avoid the transient .lines().collect::<Vec<_>>().join("\n") allocation.
+    // Strip a single optional trailing '\r' per line (platform line endings)
+    // that the previous implementation suppressed via str::lines.
+    if buffer.contains('\r') {
+        Ok(buffer.lines().collect::<Vec<_>>().join("\n"))
+    } else {
+        Ok(buffer)
+    }
 }
 
 #[cfg(test)]

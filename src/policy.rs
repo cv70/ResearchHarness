@@ -1,4 +1,5 @@
 use std::ffi::OsStr;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::core::{HarnessError, MetricDirection, Result};
@@ -67,16 +68,14 @@ impl PathPolicy {
         for path in paths {
             let path = path.as_ref();
             if Self::matches_any(path, &self.readonly) {
-                return Err(HarnessError::PathPolicy(format!(
-                    "readonly path changed: {}",
-                    path.display()
-                )));
+                let mut msg = String::with_capacity(24 + path.as_os_str().len());
+                write!(msg, "readonly path changed: {}", path.display()).unwrap();
+                return Err(HarnessError::PathPolicy(msg));
             }
             if !Self::matches_any(path, &self.modifiable) {
-                return Err(HarnessError::PathPolicy(format!(
-                    "path is outside modifiable set: {}",
-                    path.display()
-                )));
+                let mut msg = String::with_capacity(40 + path.as_os_str().len());
+                write!(msg, "path is outside modifiable set: {}", path.display()).unwrap();
+                return Err(HarnessError::PathPolicy(msg));
             }
         }
         Ok(())

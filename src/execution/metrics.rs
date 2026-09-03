@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{fmt::Write as _, path::Path};
 
 use crate::{
     config::MetricConfig,
@@ -17,8 +17,10 @@ pub fn parse_metric_with_regex(
         .captures(log_content)
         .and_then(|captures| captures.get(1))
         .ok_or_else(|| HarnessError::MetricNotFound(config.name.clone()))?;
-    let value: f64 = capture.as_str().parse().map_err(|err| {
-        HarnessError::Experiment(format!("metric {} is not a number: {err}", config.name))
+    let value: f64 = capture.as_str().parse::<f64>().map_err(|err| {
+        let mut msg = String::with_capacity(config.name.len() + 32 + err.to_string().len());
+        write!(msg, "metric {} is not a number: {err}", config.name).unwrap();
+        HarnessError::Experiment(msg)
     })?;
     let improved = is_improved(value, previous_best, config.direction);
     Ok(MetricSnapshot {

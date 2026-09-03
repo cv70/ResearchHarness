@@ -49,7 +49,7 @@ impl AgentRunner for CliAgentRunner {
                 let _ = child.kill();
                 let _ = child.wait();
                 let mut msg = String::with_capacity(self.program.len() + 40);
-                let _ = write!(msg, "{} closed stdin before receiving prompt", self.program);
+                write!(msg, "{} closed stdin before receiving prompt", self.program).unwrap();
                 return Err(HarnessError::Agent(msg));
             }
         }
@@ -59,11 +59,12 @@ impl AgentRunner for CliAgentRunner {
             let _ = child.kill();
             let _ = child.wait();
             let mut msg = String::with_capacity(self.program.len() + 30);
-            let _ = write!(
+            write!(
                 msg,
                 "{} timed out after {}s",
                 self.program, request.timeout_seconds
-            );
+            )
+            .unwrap();
             return Err(HarnessError::Agent(msg));
         }
 
@@ -77,11 +78,12 @@ impl AgentRunner for CliAgentRunner {
                     let mut msg = String::with_capacity(
                         self.program.len() + stderr.len() + stdout.len() + 64,
                     );
-                    let _ = write!(
+                    write!(
                         msg,
                         "{} exited with {:?}\n--- stderr ---\n{}\n--- stdout ---\n{}",
                         self.program, exit_status, stderr, stdout
-                    );
+                    )
+                    .unwrap();
                     return Err(HarnessError::Agent(msg));
                 }
                 Ok(AgentResponse {
@@ -94,7 +96,7 @@ impl AgentRunner for CliAgentRunner {
             }
             Err(e) => {
                 let mut msg = String::with_capacity(self.program.len() + 40);
-                let _ = write!(msg, "failed to collect {} output: {e}", self.program);
+                write!(msg, "failed to collect {} output: {e}", self.program).unwrap();
                 Err(HarnessError::Agent(msg))
             }
         }
