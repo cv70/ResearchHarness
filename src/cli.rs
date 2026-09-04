@@ -68,8 +68,8 @@ pub fn run() -> Result<()> {
                     "v1 supports `run --once`; continuous loop is not implemented yet".to_string(),
                 ));
             }
-            let config = Config::load(&cli.root)?;
-            let backend = config.agent.backend.clone();
+            let mut config = Config::load(&cli.root)?;
+            let backend = std::mem::take(&mut config.agent.backend);
             let orchestrator = Orchestrator::new(&cli.root, config);
             let outcome = run_with_backend(&orchestrator, &tag, &backend)?;
             print_outcome(outcome);

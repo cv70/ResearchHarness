@@ -1,9 +1,11 @@
 use std::{
     fmt::Write as _,
     fs,
-    io::{BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
+
+#[cfg(test)]
+use std::io::{BufReader, Read, Seek, SeekFrom};
 
 use chrono::Utc;
 
@@ -101,14 +103,41 @@ impl ArchiveStore {
 }
 
 pub fn build_log_excerpt(content: &str, max_lines: usize) -> String {
-    if max_lines == 0 {
+    if max_lines == 0 || content.is_empty() {
         return String::new();
     }
-    let lines: Vec<&str> = content.lines().collect();
-    let start = lines.len().saturating_sub(max_lines);
-    lines[start..].join("\n")
+    let bytes = content.as_bytes();
+    // Count the final trailing newline as *not* introducing an extra line,
+    // matching the previous semantics: "a\nb\n" => lines() yields ["a","b"].
+    let mut remaining = max_lines;
+    let mut i = bytes.len();
+    if i > 0 && bytes[i - 1] == b'\n' {
+        i -= 1;
+    }
+    while i > 0 && remaining > 0 {
+        i -= 1;
+        if bytes[i] == b'\n' {
+            remaining -= 1;
+            if remaining == 0 {
+                // Start the excerpt right after this boundary newline.
+                i += 1;
+                break;
+            }
+        }
+    }
+    // SAFETY: i was computed on byte boundaries of a &str, and '\n' is ASCII.
+    let tail = &content[i..];
+    let tail = tail.strip_suffix('\n').unwrap_or(tail);
+    // Avoid the transient Vec<&str> allocation on the common Unix-only path;
+    // fall back to str::lines when content may contain CRLF to strip '\r'.
+    if tail.contains('\r') {
+        tail.lines().collect::<Vec<_>>().join("\n")
+    } else {
+        tail.to_string()
+    }
 }
 
+#[cfg(test)]
 pub fn read_log_excerpt(path: impl AsRef<Path>, max_lines: usize) -> Result<String> {
     if max_lines == 0 {
         return Ok(String::new());

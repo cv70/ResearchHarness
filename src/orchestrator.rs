@@ -47,7 +47,6 @@ struct ExperimentContext<R: AgentRunner> {
     run: Run,
     experiment: crate::core::Experiment,
     archive: crate::core::ExperimentArchive,
-    base_commit: String,
     agent: R,
     state_path: PathBuf,
     plan: String,
@@ -149,7 +148,7 @@ impl Orchestrator {
         let base_commit = workspace.head_commit()?;
         let experiment_index = run.experiment_count + 1;
         let (experiment, archive) =
-            archive_store.create_experiment(tag, experiment_index, base_commit.clone())?;
+            archive_store.create_experiment(tag, experiment_index, base_commit)?;
 
         Ok(ExperimentContext {
             workspace,
@@ -158,7 +157,6 @@ impl Orchestrator {
             run,
             experiment,
             archive,
-            base_commit,
             agent,
             state_path,
             plan: String::new(),
@@ -331,7 +329,9 @@ impl Orchestrator {
     }
 
     fn rollback_workspace<R: AgentRunner>(context: &mut ExperimentContext<R>) -> Result<()> {
-        context.workspace.reset_hard(&context.base_commit)?;
+        context
+            .workspace
+            .reset_hard(&context.experiment.base_commit)?;
         context.workspace.clean_user_untracked()?;
         Ok(())
     }
