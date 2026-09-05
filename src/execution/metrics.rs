@@ -13,18 +13,19 @@ pub fn parse_metric_with_regex(
     source_log: impl AsRef<Path>,
     previous_best: Option<f64>,
 ) -> Result<MetricSnapshot> {
+    let metric_name = config.name.clone();
     let capture = regex
         .captures(log_content)
         .and_then(|captures| captures.get(1))
-        .ok_or_else(|| HarnessError::MetricNotFound(config.name.clone()))?;
+        .ok_or_else(|| HarnessError::MetricNotFound(metric_name.clone()))?;
     let value: f64 = capture.as_str().parse::<f64>().map_err(|err| {
-        let mut msg = String::with_capacity(config.name.len() + 32 + err.to_string().len());
-        write!(msg, "metric {} is not a number: {err}", config.name).unwrap();
+        let mut msg = String::with_capacity(metric_name.len() + 32 + err.to_string().len());
+        write!(msg, "metric {metric_name} is not a number: {err}").unwrap();
         HarnessError::Experiment(msg)
     })?;
     let improved = is_improved(value, previous_best, config.direction);
     Ok(MetricSnapshot {
-        name: config.name.clone(),
+        name: metric_name,
         value,
         previous_best,
         direction: config.direction,

@@ -25,7 +25,7 @@ const AGENT_SYSTEM_PROMPT: &str = "你是 ResearchHarness 自动实验系统中�
 
 #[derive(Debug, Clone)]
 pub struct Orchestrator {
-    workspace_root: PathBuf,
+    workspace_root: Arc<PathBuf>,
     config: Config,
     allowed_paths: Arc<[PathBuf]>,
     path_policy: PathPolicy,
@@ -63,7 +63,7 @@ impl Orchestrator {
             .compiled_regex()
             .expect("regex validated in Config::validate");
         Self {
-            workspace_root: workspace_root.into(),
+            workspace_root: Arc::new(workspace_root.into()),
             config,
             allowed_paths,
             path_policy,
@@ -165,11 +165,11 @@ impl Orchestrator {
     }
 
     fn ensure_environment(&self, tag: &str) -> Result<(Workspace, MemoryStore, ArchiveStore)> {
-        let workspace = Workspace::new(&self.workspace_root);
+        let workspace = Workspace::new(self.workspace_root.as_ref());
         workspace.ensure_git_repo()?;
-        let archive_store = ArchiveStore::new(&self.workspace_root, tag);
+        let archive_store = ArchiveStore::new(self.workspace_root.as_ref(), tag);
         archive_store.init_run_dirs()?;
-        let memory = MemoryStore::new(&self.workspace_root);
+        let memory = MemoryStore::new(self.workspace_root.as_ref());
         memory.init()?;
         Ok((workspace, memory, archive_store))
     }
@@ -271,7 +271,7 @@ impl Orchestrator {
             .archive_store
             .write_manifest(&context.archive.manifest_path, &context.experiment)?;
 
-        let command_result = run_command(&self.workspace_root, &command)?;
+        let command_result = run_command(self.workspace_root.as_path(), &command)?;
         let max_lines = self.config.experiment.max_log_excerpt_lines;
         let log_content = fs::read_to_string(&context.archive.run_log_path).unwrap_or_default();
         let log_excerpt = build_log_excerpt(&log_content, max_lines);
@@ -408,7 +408,7 @@ impl Orchestrator {
         write!(task_prompt, "{task}\n\n上下文：\n{context}").unwrap();
         agent.run(&AgentRequest {
             role,
-            working_directory: self.workspace_root.clone(),
+            working_directory: Arc::clone(&self.workspace_root),
             system_prompt: std::borrow::Cow::Borrowed(AGENT_SYSTEM_PROMPT),
             task_prompt,
             allowed_paths: Arc::clone(allowed_paths),

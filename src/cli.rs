@@ -81,7 +81,7 @@ pub fn run() -> Result<()> {
             let root = if cli.root.as_os_str() == "." {
                 env::current_dir()?
             } else {
-                cli.root.clone()
+                cli.root
             };
             let store = MemoryStore::new(root);
             store.init()?;

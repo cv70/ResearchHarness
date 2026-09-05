@@ -19,7 +19,7 @@ pub enum AgentRole {
 #[derive(Debug, Clone)]
 pub struct AgentRequest {
     pub role: AgentRole,
-    pub working_directory: PathBuf,
+    pub working_directory: Arc<PathBuf>,
     pub system_prompt: Cow<'static, str>,
     pub task_prompt: String,
     pub allowed_paths: Arc<[PathBuf]>,

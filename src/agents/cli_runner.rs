@@ -32,7 +32,7 @@ impl AgentRunner for CliAgentRunner {
         let started = Instant::now();
         let mut child = Command::new(&self.program)
             .args(&self.args)
-            .current_dir(&request.working_directory)
+            .current_dir(request.working_directory.as_path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
