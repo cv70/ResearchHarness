@@ -79,7 +79,8 @@ impl ArchiveStore {
         experiment_index: u64,
         base_commit: String,
     ) -> Result<(Experiment, ExperimentArchive)> {
-        let experiment_id = format!("exp-{experiment_index:05}");
+        let mut experiment_id = String::with_capacity(12);
+        write!(experiment_id, "exp-{experiment_index:05}").unwrap();
         let archive = self.experiment_archive(&experiment_id)?;
         let experiment = Experiment {
             id: experiment_id,

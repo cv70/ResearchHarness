@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     fmt::Write as _,
     fs::File,
     path::{Path, PathBuf},
@@ -31,9 +32,9 @@ pub fn run_command(
     let workspace_root = workspace_root.as_ref();
     let started = Instant::now();
     let log_path = if command.log_path.is_absolute() {
-        command.log_path.clone()
+        Cow::Borrowed(command.log_path.as_path())
     } else {
-        workspace_root.join(&command.log_path)
+        Cow::Owned(workspace_root.join(&command.log_path))
     };
     if let Some(parent) = log_path.parent() {
         std::fs::create_dir_all(parent)?;

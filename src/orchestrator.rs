@@ -294,9 +294,8 @@ impl Orchestrator {
         ) {
             Ok(snapshot) => {
                 let improved = snapshot.improved;
-                context.experiment.metric_snapshot = Some(snapshot);
                 if improved {
-                    let snapshot = context.experiment.metric_snapshot.clone().unwrap();
+                    context.experiment.metric_snapshot = Some(snapshot.clone());
                     context.run.best_metric = Some(snapshot.clone());
                     context.run.best_commit = context.experiment.candidate_commit.clone();
                     context.run.consecutive_crashes = 0;
@@ -305,10 +304,7 @@ impl Orchestrator {
                 } else {
                     Self::rollback_workspace(context)?;
                     context.run.consecutive_regressions += 1;
-                    Ok((
-                        ExperimentStatus::Discarded,
-                        context.experiment.metric_snapshot.take(),
-                    ))
+                    Ok((ExperimentStatus::Discarded, Some(snapshot)))
                 }
             }
             Err(err) => {
