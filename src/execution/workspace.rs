@@ -35,22 +35,15 @@ impl Workspace {
             .map(|s| s.trim().to_string())
     }
 
-    pub fn changed_files(&self) -> Result<Vec<PathBuf>> {
+    pub fn user_changed_files(&self) -> Result<Vec<PathBuf>> {
         Ok(self
-            .porcelain_paths()?
-            .into_iter()
-            .map(PathBuf::from)
+            .git(["status", "--porcelain"])?
+            .lines()
+            .filter_map(|line| line.get(3..).map(PathBuf::from))
+            .filter(|path: &PathBuf| !path.starts_with(".research-harness"))
             .collect())
     }
 
-    pub fn user_changed_files(&self) -> Result<Vec<PathBuf>> {
-        Ok(self
-            .porcelain_paths()?
-            .into_iter()
-            .filter(|path| !path.starts_with(".research-harness"))
-            .map(PathBuf::from)
-            .collect())
-    }
     pub fn diff(&self) -> Result<String> {
         self.git(["diff", "HEAD"])
     }
@@ -120,23 +113,12 @@ impl Workspace {
         Ok(())
     }
 
-    pub fn is_dirty(&self) -> Result<bool> {
-        Ok(!self.porcelain_paths()?.is_empty())
-    }
-
     pub fn has_user_changes(&self) -> Result<bool> {
-        Ok(self
-            .porcelain_paths()?
-            .iter()
-            .any(|path| !path.starts_with(".research-harness")))
-    }
-
-    fn porcelain_paths(&self) -> Result<Vec<String>> {
         Ok(self
             .git(["status", "--porcelain"])?
             .lines()
-            .filter_map(|line| line.get(3..).map(str::to_string))
-            .collect())
+            .filter_map(|line| line.get(3..))
+            .any(|path| !path.starts_with(".research-harness")))
     }
 
     fn git<const N: usize>(&self, args: [&str; N]) -> Result<String> {
