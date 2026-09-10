@@ -26,13 +26,15 @@ impl Workspace {
     }
 
     pub fn current_branch(&self) -> Result<String> {
-        self.git(["rev-parse", "--abbrev-ref", "HEAD"])
-            .map(|s| s.trim().to_string())
+        let mut out = self.git(["rev-parse", "--abbrev-ref", "HEAD"])?;
+        out.truncate(out.trim_end().len());
+        Ok(out)
     }
 
     pub fn head_commit(&self) -> Result<String> {
-        self.git(["rev-parse", "HEAD"])
-            .map(|s| s.trim().to_string())
+        let mut out = self.git(["rev-parse", "HEAD"])?;
+        out.truncate(out.trim_end().len());
+        Ok(out)
     }
 
     pub fn user_changed_files(&self) -> Result<Vec<PathBuf>> {
