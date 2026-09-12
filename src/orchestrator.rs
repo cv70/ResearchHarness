@@ -196,14 +196,13 @@ impl Orchestrator {
             &snapshot.playbook,
             &self.allowed_paths,
         )?;
-        let research = self.call_agent(
+        let mut research = self.call_agent(
             &context.agent,
             AgentRole::Research,
             "提出一个可归因的实验假设。",
             &snapshot.experiments,
             &self.allowed_paths,
         )?;
-        context.experiment.hypothesis = Some(research.stdout.trim().to_string());
         let plan = self.call_agent(
             &context.agent,
             AgentRole::Planning,
@@ -211,6 +210,8 @@ impl Orchestrator {
             &research.stdout,
             &self.allowed_paths,
         )?;
+        research.stdout.truncate(research.stdout.trim().len());
+        context.experiment.hypothesis = Some(research.stdout);
         ArchiveStore::write_text(&context.archive.plan_path, &plan.stdout)?;
         context.plan = plan.stdout;
         Ok(())
@@ -308,8 +309,9 @@ impl Orchestrator {
                 }
             }
             Err(err) => {
+                let err = err.to_string();
                 let mut analysis =
-                    String::with_capacity(80 + err.to_string().len() + context.log_excerpt.len());
+                    String::with_capacity(80 + err.len() + context.log_excerpt.len());
                 write!(
                     analysis,
                     "Metric parsing failed; experiment treated as crashed.\n\nError: {err}\n\nLog excerpt:\n{}\n",
@@ -360,9 +362,9 @@ impl Orchestrator {
         context.experiment.status = ExperimentStatus::Crashed;
         context.run.consecutive_crashes += 1;
 
+        let err = err.to_string();
         let mut analysis = String::with_capacity(
-            40 + "Experiment crashed before command execution.\n\nError: \n".len()
-                + err.to_string().len(),
+            40 + "Experiment crashed before command execution.\n\nError: \n".len() + err.len(),
         );
         write!(
             analysis,
